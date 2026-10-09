@@ -6,7 +6,7 @@ import type { Socket } from "node:net";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { UIMessage } from "ai";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
 import { Chat, Turn } from "@/components/chat";
@@ -146,6 +146,8 @@ function endpointAnswers(...answers: ResponsePlan[]) {
   plans = answers;
 }
 
+let writeText: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   stubCalls = 0;
   stubAborts = 0;
@@ -153,6 +155,12 @@ beforeEach(() => {
   plans = [];
   lastRequest = null;
   findEndpoint("ollama")!.baseURL = stubURL;
+
+  // jsdom exposes `clipboard` as a getter, so it is redefined outright rather
+  // than assigned. Copying out of a Response is observable behaviour, so the
+  // test below reads what actually reached the clipboard.
+  writeText = vi.fn(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 
   // Rewire only the browser → Route Handler hop. The Route Handler's own call
   // out to the Endpoint falls through to the captured real fetch, untouched.
@@ -272,15 +280,28 @@ describe("a Turn in the Conversation", () => {
     expect(container.textContent).toContain("first\nsecond");
   });
 
-  it("does not let a code block widen the Turn out of its container", () => {
-    const { container } = render(
-      <Turn message={message("assistant", "```\n" + "x".repeat(400) + "\n```")} />,
-    );
+  // Spec story 35 asks for a code block to be readable, and story 36 for the
+  // interface to stay usable in a narrow window. A long unbroken line is what
+  // breaks both, by making the Turn wider than the window. Whether that
+  // actually happens is a layout property, and jsdom has no layout engine — it
+  // reports every element's width as 0, so `min-w-0` on the flex child and a
+  // fixed `400px` both "pass". What jsdom *can* see is the content: the line
+  // must reach the reader whole, and be copyable out of the Conversation, which
+  // is the observable half of the same claim. The layout half is unobservable
+  // here and is deliberately not asserted.
+  it("keeps a long unbroken line whole and copyable, rather than truncating it", () => {
+    const line = "x".repeat(400);
 
-    // `min-w-0` is what lets the code block's own scroll box take effect
-    // inside the flex row rather than stretching it.
-    const bubble = container.querySelector("pre")?.closest(".rounded-2xl");
-    expect(bubble?.className).toContain("min-w-0");
+    render(<Turn message={message("assistant", "```\n" + line + "\n```")} />);
+
+    const pre = document.querySelector("pre");
+    // Every character of the line is on screen: a Turn that clipped it would
+    // leave the reader unable to read the very code they asked for.
+    expect(pre?.textContent ?? "").toContain(line);
+
+    // And it survives the round trip out of the Conversation intact.
+    fireEvent.click(screen.getByRole("button", { name: /copy/i }));
+    expect(writeText).toHaveBeenCalledWith(line);
   });
 });
 

@@ -170,33 +170,48 @@ describe("entering a Credential", () => {
     expect(offered).toContain("OpenRouter");
   });
 
-  it("fits a window narrow enough to sit beside a terminal, rather than needing a width of its own", async () => {
+  // The spec asks the interface to stay usable in a window narrow enough to sit
+  // beside a terminal (story 36). That is a layout property, and jsdom has no
+  // layout engine: it reports every element's width and height as 0 whether the
+  // stylesheet says `w-full` or a fixed `640px`. A test could only assert the
+  // class names back, which would pass on a dialog that overflows and fail on one
+  // that does not — it would pin the fix rather than the behaviour. So the
+  // claim is not tested here at all. What is left is the part a reader can
+  // actually be blocked by, which the next test does check.
+  it("keeps everything needed to finish reachable, since nothing else is on the way", async () => {
     renderApp("groq");
 
     const dialog = await openKeyEntry();
 
-    // Width is a bound, not a demand: full width up to a maximum, so the dialog
-    // takes whatever window it is given instead of being cut off by one.
-    expect(dialog.className).toContain("w-full");
-    expect(dialog.className).toContain("max-w-");
-    // Height is bounded and scrollable, so a short window scrolls the dialog
-    // rather than pushing the field and Save out of reach.
-    expect(dialog.className).toContain("max-h-full");
-    expect(dialog.className).toContain("overflow-y-auto");
-    // Nothing in it is pinned to a fixed pixel size, which is what would overflow.
-    expect(dialog.className).not.toMatch(/\d+px/);
+    // The field to type into, and the control that submits it, both present and
+    // usable — a reader who has to scroll a dialog to find Save has lost the
+    // affordance however good the scrolling is.
+    const field = within(dialog).getByLabelText(/Credential/i);
+    const save = within(dialog).getByRole("button", { name: /Save|Store/i });
+
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(field, { target: { value: "gsk-typed" } });
+    expect((save as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(save);
+    await waitFor(() => expect(entered).toHaveLength(1));
+
+    expect(within(dialog).getByRole("button", { name: /Close/i })).toBeTruthy();
   });
 
-  it("keeps the field and Save reachable in a narrow window, since nothing else is on the way", async () => {
+  it("keeps the field usable at any window width, because nothing sizes it in pixels", async () => {
     renderApp("groq");
 
     const dialog = await openKeyEntry();
 
-    // What a reader needs to finish is present and reachable without scrolling a
-    // page: the field to type into, and the control that submits it.
-    expect(within(dialog).getByLabelText(/Credential/i)).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: /Save|Store/i })).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: /Close/i })).toBeTruthy();
+    // A fixed pixel width or height is the one thing that genuinely cannot
+    // shrink with the window, and it is the only measurement a layout-free DOM
+    // can still tell is wrong. Every other bound — percentages, viewport units,
+    // max-width with overflow — resolves against the window and is invisible
+    // here, so this checks the absence of the failure rather than the fix.
+    expect(dialog.className).not.toMatch(/\d+px/);
+    expect(dialog.getAttribute("style")).toBeNull();
   });
 });
 
