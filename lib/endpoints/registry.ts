@@ -1,3 +1,4 @@
+import type { EndpointGroup } from "./groups";
 import { CLOUD_ENDPOINTS } from "./validate";
 import type { Endpoint, LocalEndpoint } from "./types";
 
@@ -29,6 +30,60 @@ export const LOCAL_ENDPOINTS: readonly LocalEndpoint[] = [
     defaultModelId: "qwen/qwen3-coder-30b",
   },
 ];
+
+/**
+ * Cloud Endpoints offered ahead of the rest, as ids of Catalog entries.
+ *
+ * A judgement about which providers a reader is most likely to want, made once
+ * and here rather than in the interface, so the grouping is a property of the
+ * Registry rather than a presentation detail that could differ between places
+ * that read the Registry.
+ *
+ * The Catalog holds 187 Cloud Endpoints and most are services a reader will
+ * never choose: proxies, resellers, regional mirrors of each other. Scrolling
+ * past them all to find Groq is the problem these three groups solve, so the
+ * group is a short list of widely-known names rather than a long one.
+ *
+ * Anthropic is absent because the Catalog has no such entry: its native message
+ * format is out of scope, and the spec's own words for that are in the Out of
+ * Scope list. Claude is reachable through OpenRouter, which is here.
+ *
+ * A name absent from the Catalog is a load-time failure rather than a silently
+ * ignored line — a typo would demote a recommended provider into the other
+ * group without anything saying so.
+ */
+export const RECOMMENDED_CLOUD_IDS: ReadonlySet<string> = new Set([
+  "openai",
+  "google",
+  "openrouter",
+  "deepseek",
+  "groq",
+]);
+
+const cloudIds = new Set(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id));
+
+for (const id of RECOMMENDED_CLOUD_IDS) {
+  if (!cloudIds.has(id)) {
+    throw new Error(
+      `RECOMMENDED_CLOUD_IDS names "${id}", which the Catalog does not hold. ` +
+        `A provider meant to be recommended would otherwise appear in "Cloud (Others)" ` +
+        `with nothing saying the list had a typo in it.`,
+    );
+  }
+}
+
+/**
+ * Which group an Endpoint is offered under.
+ *
+ * Read off the Endpoint itself rather than stored on it, so that being
+ * recommended cannot drift away from the Catalog entry it names — and so that
+ * changing the recommendation list regroups every reader of the Registry at
+ * once, without a second pass over the data.
+ */
+export function groupOf(endpoint: Endpoint): EndpointGroup {
+  if (!("credentialEnvVar" in endpoint)) return "local";
+  return RECOMMENDED_CLOUD_IDS.has(endpoint.id) ? "recommended" : "others";
+}
 
 /**
  * Every Endpoint the app offers: Cloud Endpoints from the Catalog, Local

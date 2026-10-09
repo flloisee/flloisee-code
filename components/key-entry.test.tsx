@@ -30,18 +30,26 @@ afterEach(() => {
   runAsEnvironment(originalNodeEnv);
 });
 
-const LOCAL = { id: "ollama", name: "Ollama", credentialEnvVar: null, configured: true };
-const CLOUD_READY = {
+const LOCAL: Status = {
+  id: "ollama",
+  name: "Ollama",
+  credentialEnvVar: null,
+  configured: true,
+  group: "local",
+};
+const CLOUD_READY: Status = {
   id: "openrouter",
   name: "OpenRouter",
   credentialEnvVar: "OPENROUTER_API_KEY",
   configured: true,
+  group: "recommended",
 };
-const CLOUD_BARE = {
+const CLOUD_BARE: Status = {
   id: "groq",
   name: "Groq",
   credentialEnvVar: "GROQ_API_KEY",
   configured: false,
+  group: "recommended",
 };
 
 /** What the Registry route answers with: one Endpoint, or several. */

@@ -1,4 +1,5 @@
-import { ENDPOINTS } from "./registry";
+import { ENDPOINTS, groupOf } from "./registry";
+import type { EndpointGroup } from "./groups";
 import { resolveEndpoint, type Environment } from "./resolve";
 import type { Endpoint } from "./types";
 
@@ -21,6 +22,14 @@ export type EndpointStatus = {
   credentialEnvVar: string | null;
   /** Whether the Endpoint can receive messages right now. */
   configured: boolean;
+  /**
+   * Which group the Endpoint is offered under.
+   *
+   * Decided by the Registry and sent with the rest, so the interface groups the
+   * list rather than carrying a second opinion about which providers are
+   * recommended — two lists would be free to disagree.
+   */
+  group: EndpointGroup;
 };
 
 /**
@@ -36,5 +45,6 @@ export function describeEndpoints(env: Environment): readonly EndpointStatus[] {
     name: endpoint.name,
     credentialEnvVar: endpoint.credentialEnvVar ?? null,
     configured: resolveEndpoint(endpoint, env).ok,
+    group: groupOf(endpoint),
   }));
 }

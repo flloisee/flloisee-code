@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { KeyEntry } from "@/components/key-entry";
+import { ENDPOINT_GROUPS } from "@/lib/endpoints/groups";
 import { keyEntryIsAvailable } from "@/lib/endpoints/key-entry";
 import { requestEndpoints } from "@/lib/endpoints/request";
 import type { EndpointStatus } from "@/lib/endpoints/status";
@@ -57,6 +58,15 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
   const keyEntryFor =
     keyEntryIsAvailable() && chosen?.credentialEnvVar != null ? chosen.id : null;
 
+  // Every group is rendered even when empty, so the shape of the list does not
+  // change with the Credential someone happens to have set. An Endpoint group
+  // that appeared and vanished would make the control feel like it was
+  // answering a question the reader did not ask.
+  const grouped = ENDPOINT_GROUPS.map((group) => ({
+    ...group,
+    entries: statuses.filter((status) => status.group === group.kind),
+  }));
+
   return (
     <div className="flex flex-col gap-1.5 border-b border-black/[.08] pb-3 dark:border-white/[.15]">
       <div className="flex items-center gap-2">
@@ -71,11 +81,15 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
           disabled={answer === null}
           className="min-w-0 flex-1 rounded-md border border-black/[.1] bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-40 dark:border-white/[.15] dark:focus:border-white/40"
         >
-          {statuses.map((status) => (
-            <option key={status.id} value={status.id}>
-              {status.name}
-              {status.configured ? "" : " — no Credential"}
-            </option>
+          {grouped.map(({ kind, label, entries }) => (
+            <optgroup key={kind} label={label}>
+              {entries.map((status) => (
+                <option key={status.id} value={status.id}>
+                  {status.name}
+                  {status.configured ? "" : " — no Credential"}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>

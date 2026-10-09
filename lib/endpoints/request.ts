@@ -18,6 +18,11 @@ const registryResponseSchema = z.object({
       name: z.string(),
       credentialEnvVar: z.string().nullable(),
       configured: z.boolean(),
+      // Required rather than defaulted. An answer missing the grouping would
+      // otherwise parse and land every Endpoint in "Cloud (Others)", and a
+      // reader would see one undifferentiated list and conclude the Registry has
+      // no recommendations — which is the opposite of what an older build said.
+      group: z.enum(["local", "recommended", "others"]),
     }),
   ),
 });
@@ -53,6 +58,7 @@ export function readEndpointStatuses({ status, body }: { status: number; body: u
       // A Local Endpoint has no variable; it is not set to an empty one.
       credentialEnvVar: entry.credentialEnvVar,
       configured: entry.configured,
+      group: entry.group,
     })),
     trouble: null,
   };

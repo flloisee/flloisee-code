@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { CLOUD_ENDPOINTS, ENDPOINTS, LOCAL_ENDPOINTS, findEndpoint } from "./registry";
+import { ENDPOINT_GROUPS } from "./groups";
+import {
+  CLOUD_ENDPOINTS,
+  ENDPOINTS,
+  LOCAL_ENDPOINTS,
+  RECOMMENDED_CLOUD_IDS,
+  findEndpoint,
+  groupOf,
+} from "./registry";
 
 /**
  * The Registry is one list, whatever an Endpoint's origin. These assert what a
@@ -101,5 +109,60 @@ describe("the Registry of Endpoints", () => {
     expect(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id)).not.toContain("ollama");
     expect(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id)).not.toContain("lmstudio");
     expect(LOCAL_ENDPOINTS.map((endpoint) => endpoint.id)).toEqual(["ollama", "lmstudio"]);
+  });
+});
+
+describe("how the Registry groups Endpoints", () => {
+  it("puts Local Endpoints in the Local group and no Cloud Endpoint in it", () => {
+    for (const endpoint of LOCAL_ENDPOINTS) {
+      expect(groupOf(endpoint), `${endpoint.id} should be local`).toBe("local");
+    }
+    for (const endpoint of CLOUD_ENDPOINTS) {
+      expect(groupOf(endpoint), `${endpoint.id} should not be local`).not.toBe("local");
+    }
+  });
+
+  it("recommends only names the Catalog actually holds", () => {
+    // The failure this guards is a typo: the id would not match anything, the
+    // provider would quietly appear under "Cloud (Others)", and the list would
+    // claim to recommend nothing while appearing to.
+    const cloudIds = new Set(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id));
+
+    for (const id of RECOMMENDED_CLOUD_IDS) {
+      expect(cloudIds, `${id} is recommended but absent from the Catalog`).toContain(id);
+    }
+  });
+
+  it("keeps the recommended group short enough to scan", () => {
+    // The point of the grouping is to save a reader scrolling 187 entries. A
+    // recommended list that grew to a dozen would be the same list, bigger.
+    expect(RECOMMENDED_CLOUD_IDS.size).toBeLessThanOrEqual(10);
+  });
+
+  it("puts every recommended Cloud Endpoint in the recommended group", () => {
+    for (const id of RECOMMENDED_CLOUD_IDS) {
+      expect(groupOf(findEndpoint(id)!), `${id} should be recommended`).toBe("recommended");
+    }
+  });
+
+  it("sends every other Cloud Endpoint to the others group, so none is lost", () => {
+    // Not merely "some are others": every one. An Endpoint dropped from the list
+    // would be an Endpoint nobody can choose.
+    const ungrouped = CLOUD_ENDPOINTS.filter(
+      (endpoint) => groupOf(endpoint) === "others" && !RECOMMENDED_CLOUD_IDS.has(endpoint.id),
+    );
+
+    expect(ungrouped.length).toBeGreaterThan(0);
+    expect(
+      CLOUD_ENDPOINTS.every((endpoint) => groupOf(endpoint) !== undefined),
+    ).toBe(true);
+  });
+
+  it("orders the groups Local, then Cloud recommended, then Cloud others", () => {
+    expect(ENDPOINT_GROUPS.map((group) => group.kind)).toEqual([
+      "local",
+      "recommended",
+      "others",
+    ]);
   });
 });
