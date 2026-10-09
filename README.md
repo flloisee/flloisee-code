@@ -1,36 +1,214 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# flloisee-code
 
-## Getting Started
+A chat application that talks to whichever AI backend you point it at — a model running
+on your own machine, or a hosted service — without the app caring which.
 
-First, run the development server:
+Pick an **Endpoint**, pick a **Model**, and talk to it. Switch either one mid-conversation
+without losing what you have said so far.
+
+**Status: v1.** All nine tracked tickets are resolved. The spec lives at
+`.scratch/multi-endpoint-chatbot/spec.md`. The domain vocabulary used below is defined in
+[`GLOSSARY.md`](./GLOSSARY.md), which names this feature **Multi-Endpoint Chat** — the name
+used throughout the codebase.
+
+## Endpoints
+
+An **Endpoint** is a configured address for an AI backend: a base URL, an optional
+**Credential**, and one or more **Models**. The app holds a single list of them — 189 in
+total — and never asks where it should connect.
+
+### Local Endpoints
+
+Served from the machine running the app. **No Credential, no account, no signup** — usable
+the moment the server is up.
+
+| Endpoint | Address | Starting Model |
+| --- | --- | --- |
+| Ollama | `http://localhost:11434/v1` | `llama3.2` |
+| LM Studio | `http://127.0.0.1:1234/v1` | `qwen/qwen3-coder-30b` |
+
+These are declared by hand in `lib/endpoints/registry.ts`, not drawn from the Catalog. Start
+Ollama and you can chat; it is the fastest path to a working Conversation.
+
+### Cloud Endpoints
+
+**187 catalogued services**, snapshotted from the community-maintained
+[models.dev](https://models.dev) database on 2026-10-09 — including OpenAI, Google Gemini,
+DeepSeek, Groq, Mistral, OpenRouter, GitHub Copilot, Hugging Face, NVIDIA, Alibaba, Moonshot,
+Fireworks AI, Baseten, Nebius, and many more — the full list is the Catalog itself.
+
+Each entry carries a name, a base URL, a documentation link, its Credential's variable
+name, and its newest Models. Five are offered up front in a **Recommended** group —
+OpenAI, Google, OpenRouter, DeepSeek, Groq — and the rest sit under **Cloud (Others)**.
+
+The Catalog is committed to source control and reviewed as code. That is deliberate: it
+decides *where your Credential is sent*, so a changed base URL has to arrive as a
+reviewable diff rather than silently over the network. Regenerate with:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+node scripts/refresh-catalog.mjs <models.dev-api.json>
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`validateCatalog()` runs before anything is allowed to send a Credential anywhere.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### One integration covers nearly all of them
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Every Endpoint here speaks the OpenAI chat format, so a single code path drives all 189 —
+no per-provider adapter. Endpoints with a proprietary format are out of scope; Anthropic's
+native message format is the notable absence, though Claude is reachable through OpenRouter,
+which is catalogued.
 
-## Learn More
+## Model Discovery
 
-To learn more about Next.js, take a look at the following resources:
+Rather than making you remember model identifiers, the app asks an Endpoint which Models it
+currently offers and presents them as a list you pick from.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Discovery runs on demand and can be re-run to pick up a model you just loaded. Endpoints
+that don't support it — or return nothing — fall back to a free-text field, so you can type
+an identifier when you know it. Each Endpoint remembers its own selected Model, so
+switching back and forth doesn't reset your choice.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Key Entry
 
-## Deploy on Vercel
+A Cloud Endpoint's Credential is typed into the interface rather than hand-edited into a
+file. Key Entry writes it to `.env.local` and applies it **immediately** — the environment
+is reloaded in place, so there is no restart to wait for.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The interface never displays a stored value back to you. It reports which variable names are
+present and what is actually live, so you can confirm setup without exposing anything.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This route is the app's only file writer, and it is bounded accordingly:
+
+- **Development only.** It refuses to run outside development, so a deployed build has no
+  capability to write secrets at all.
+- **Declared names only.** Only variable names the Catalog already declares may be written.
+  A caller-supplied base URL is rejected outright, so reaching this route cannot redirect
+  where a Credential goes.
+- **Atomic.** Written to a temporary file and renamed, so an interrupted write cannot corrupt
+  the keys you already have.
+- **Non-destructive.** Comments, ordering, and unrelated variables survive untouched.
+- **Write-only.** Stored values are never returned.
+
+An **unconfigured** Endpoint stays visible in the picker, marked, so its absence is
+diagnosable rather than a failed request discovered later.
+
+## Proxying
+
+Every request goes from your browser to this app's server and out to the Endpoint. No
+request ever travels browser-to-Endpoint directly, so no Credential is ever inlined into a
+request the browser builds or into the client bundle.
+
+One consequence is worth stating plainly: **the security posture here depends on the app
+staying local and single-user.** Proxying means the server holds every user's Credential —
+fine for one person on their own machine, not for many. Hosting it would need both an
+authentication story and a replacement for the key-entry route. If multi-user hosting ever
+becomes the goal, that decision should be reopened rather than patched.
+
+## API
+
+Four Route Handlers, **all `POST` by design**. With Cache Components enabled, a `GET` handler
+follows the prerender model of a page — so a response varying by Endpoint would be frozen at
+build time and every Endpoint would report the same answer. A silent wrong result rather
+than a visible failure.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/chat` | Hold a Conversation. Streams a Response back progressively. |
+| `POST /api/endpoints` | The Registry, with each Endpoint's configured state. |
+| `POST /api/models` | Model Discovery against one Endpoint. |
+| `POST /api/keys` | Key Entry. Development only. |
+
+Chat and discovery are deliberately separate seams: discovery fails with a bad address or a
+missing Credential, generation fails for entirely different reasons, and collapsing them
+would make every failure look like a chat failure.
+
+## Interface
+
+- Responses stream progressively, and a Stop control abandons one mid-flight — the server
+  stops generating too, rather than burning tokens on an answer nobody will read.
+- Regenerate retries the last Response without retyping, which also makes a transient
+  failure cheap to recover from.
+- Answers render as formatted Markdown (GitHub-flavoured), with a copy button on every code
+  block.
+- "New" starts a fresh Conversation. Conversations are in-memory only and are lost on reload.
+- Failures name the cause — start Ollama, re-enter a Credential, or pick a different Model —
+  and never expose a Credential, so an error can be screenshotted safely. A failed request
+  leaves the Conversation intact.
+
+## Getting started
+
+Requires Node 20.9+ (Next's engine requirement) and [pnpm](https://pnpm.io) (pinned to 12.3.4
+via `packageManager`).
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) and you land straight in the
+Conversation.
+
+**Build against a Local Endpoint first.** Start Ollama or LM Studio, and you can chat with no
+setup whatsoever. Cloud Endpoints can be verified afterwards — enter their Credentials
+through the interface when you want them.
+
+### Scripts
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Development server. |
+| `pnpm build` | Production build. |
+| `pnpm start` | Serve the production build. |
+| `pnpm test` | Vitest suite — 288 tests across 26 files. |
+| `pnpm typecheck` | `tsc --noEmit`. |
+| `pnpm lint` | ESLint. |
+| `pnpm test:mutation` | Mutation check on the security-critical paths. |
+
+`.env.local` is gitignored. Credentials entered through the interface are written there and
+are never committed.
+
+## Stack
+
+Next.js 16.4 (App Router, Cache Components, Turbopack) · React 19.3 · TypeScript · Tailwind
+CSS v4 · Vercel AI SDK v7 (`@ai-sdk/openai-compatible`) · Zod v4 · Vitest 5 · pnpm 12.3.4.
+
+## Out of scope for v1
+
+Named here so their absence reads as a decision rather than a gap:
+
+- Anthropic and any Endpoint not speaking the OpenAI-compatible format
+- Conversation persistence — Conversations live in memory and are lost on reload
+- Multiple simultaneous Conversations, or naming and resuming them
+- Tool calling and function invocation; file and image attachment
+- Creating arbitrary Endpoints through the interface — the Catalog is source-controlled,
+  and no caller-supplied base URL is accepted
+- Reasoning-token display and source citations
+- Authentication and multi-user support
+- Deployment to hosted infrastructure, which would put Local Endpoints out of reach
+
+## Layout
+
+```
+app/
+  api/{chat,endpoints,keys,models}/   Route Handlers, with tests alongside
+  page.tsx                            The Conversation, at the root
+components/                           Endpoint picker, Model picker, Key Entry, chat surface
+lib/
+  endpoints/                          Catalog, Registry, grouping, resolution, validation
+  models/                             Discovery, parsing, selection
+  env.ts                              The only place a Credential is written
+  chat/failure.ts                     Turning provider errors into readable text
+scripts/                              Catalog refresh, mutation check
+```
+
+`lib/endpoints/catalog.ts` is the highest-leverage file in the repo. It decides where
+Credentials are sent and is the most likely to need maintenance as model identifiers shift.
+Treat changes to it with the care of a dependency bump, not a copy edit.
+
+## Further reading
+
+- [`GLOSSARY.md`](./GLOSSARY.md) — the domain vocabulary, including which words to avoid
+- [`.scratch/multi-endpoint-chatbot/spec.md`](./.scratch/multi-endpoint-chatbot/spec.md) — the
+  spec, its decisions and rationale, and what was deliberately left out
+- [`AGENTS.md`](./AGENTS.md) and [`docs/agents/`](./docs/agents/) — conventions for working
+  in this repo

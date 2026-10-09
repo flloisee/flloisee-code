@@ -14,6 +14,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Issues and specs live as markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
 
+`.scratch/` is allowlisted in `.gitignore`: only `spec.md`, `map.md`, and `issues/**` are committable, and anything else under `.scratch/` is ignored by default. This repo is public, so anything committed there is permanent. Treat a file as committable only if it is one of those three artifact types and you have read it back and confirmed it holds no Credential, env dump, log tail, or transcript. If a throwaway file must be committed, `git add -f` it deliberately.
+
 ### Triage labels
 
 Default five-role vocabulary, recorded as `Status:` lines. See `docs/agents/triage-labels.md`.

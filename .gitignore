@@ -43,6 +43,21 @@ yarn-error.log*
 # a stray one must never be committable.
 _tmp_*
 
+# Scratch output. This repo is public, so a stray paste (an env dump, a log
+# tail, a transcript) is permanent the moment it is pushed. Rather than
+# enumerate the throwaway shapes and hope the list is complete, allowlist the
+# three artifact types docs/agents/issue-tracker.md actually declares and let
+# everything else default to untracked.
+#
+# Order matters: a file cannot be re-included while a parent directory of it
+# is excluded, so each directory is re-included before the files within it.
+.scratch/**
+!.scratch/*/
+!.scratch/*/spec.md
+!.scratch/*/map.md
+!.scratch/*/issues/
+!.scratch/*/issues/**
+
 # macOS AppleDouble resource forks (created when working on some volumes,
 # including external SSDs). Vitest picks these up as broken test files.
 ._*
