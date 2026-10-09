@@ -68,9 +68,11 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
   }));
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-black/[.08] pb-3 dark:border-white/[.15]">
-      <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-zinc-500" htmlFor="endpoint-picker">
+    <div className="flex flex-col gap-2 border-b border-rule pb-3">
+      <div className="flex items-center gap-3">
+        {/* The mono register: a field name, set like a label on a control panel
+            rather than a heading. */}
+        <label className="hm-label w-16 shrink-0" htmlFor="endpoint-picker">
           Endpoint
         </label>
 
@@ -79,7 +81,7 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
           value={endpointId}
           onChange={(event) => onSelect(event.target.value)}
           disabled={answer === null}
-          className="min-w-0 flex-1 rounded-md border border-black/[.1] bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-40 dark:border-white/[.15] dark:focus:border-white/40"
+          className="hm-field flex-1"
         >
           {grouped.map(({ kind, label, entries }) => (
             <optgroup key={kind} label={label}>
@@ -94,7 +96,9 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
         </select>
       </div>
 
-      <p role="status" className="text-xs text-zinc-500">
+      {/* Reserved one line whether or not there is anything to say, so an
+          arriving message never shoves the Conversation down the page. */}
+      <p role="status" className="hm-status">
         {sayAboutChosen(answer, chosen)}
       </p>
 

@@ -78,12 +78,16 @@ export function ModelPicker({
   }
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-black/[.08] pb-3 dark:border-white/[.15]">
-      <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-zinc-500" htmlFor="model-picker">
+    <div className="flex flex-col gap-2 border-b border-rule pb-3">
+      <div className="flex items-center gap-3">
+        <label className="hm-label w-16 shrink-0" htmlFor="model-picker">
           Model
         </label>
 
+        {/* A Model identifier is a machine string — `llama3.2:3b-instruct-q4_K_M`,
+            `anthropic/claude-opus-4` — so the field that holds it is set in the
+            mono register too. An identifier rendered in the body face is harder
+            to read character by character, which is how it has to be read. */}
         {showManual ? (
           <input
             id="model-picker"
@@ -95,7 +99,9 @@ export function ModelPicker({
             }}
             placeholder="Model identifier"
             aria-describedby="model-discovery-message"
-            className="min-w-0 flex-1 rounded-md border border-black/[.1] bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:border-white/[.15] dark:focus:border-white/40"
+            spellCheck={false}
+            autoComplete="off"
+            className="hm-field flex-1 font-mono"
           />
         ) : (
           <select
@@ -108,7 +114,7 @@ export function ModelPicker({
               }
               onSelect(event.target.value);
             }}
-            className="min-w-0 flex-1 rounded-md border border-black/[.1] bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 dark:border-white/[.15]"
+            className="hm-field flex-1 font-mono"
           >
             {/* A Model chosen by hand stays shown even when not on the list, so
                 the identifier that will be used is never hidden from the reader. */}
@@ -123,18 +129,21 @@ export function ModelPicker({
         )}
 
         {/* Re-runs discovery on demand, so a Model loaded a moment ago appears
-            without restarting anything. */}
+            without restarting anything.
+            Full height, not the small variant: it sits in the same row as the
+            field beside it, and a 30px button next to a 36px field is the
+            untuned-row tell. */}
         <button
           type="button"
           onClick={refresh}
           disabled={current === null}
-          className="shrink-0 rounded-md border border-black/[.08] px-2 py-1 text-xs disabled:opacity-40 dark:border-white/[.15]"
+          className="hm-btn hm-btn--quiet shrink-0"
         >
           {current === null ? "Asking..." : "Refresh"}
         </button>
       </div>
 
-      <p id="model-discovery-message" role="status" className="text-xs text-zinc-500">
+      <p id="model-discovery-message" role="status" className="hm-status">
         {describe(current, endpointName, showManual)}
       </p>
     </div>

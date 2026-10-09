@@ -41,11 +41,21 @@ export function Turn({ message }: { message: UIMessage }) {
     <div className={`flex ${fromUser ? "justify-end" : "justify-start"}`}>
       {/* `min-w-0` lets a wide code block scroll inside its own box instead of
           stretching this flex child past the window. */}
+      {/* The two surfaces are inverses of each other rather than two colours:
+          the reader's own words sit on ink, the Model's on a raised paper. The
+          pair flips together with the mode, so in dark mode the reader's Turn
+          is the light one — the contrast is identical either way. */}
+      {/* `data-turn` is a structural hook, not a styling one: it names which
+          side of the Conversation a bubble belongs to so the tests can find the
+          bubbles without having to know what colour or radius they are drawn
+          with. Tests used to select on `.rounded-2xl`, which pinned the bubble
+          radius to a test assertion. */}
       <div
-        className={`min-w-0 max-w-[85%] break-words rounded-2xl px-4 py-2.5 ${
+        data-turn={fromUser ? "user" : "response"}
+        className={`min-w-0 max-w-[85%] break-words rounded-panel px-4 py-3 ${
           fromUser
-            ? "whitespace-pre-wrap bg-foreground text-background"
-            : "border border-black/[.08] bg-white text-foreground dark:border-white/[.15] dark:bg-zinc-900"
+            ? "whitespace-pre-wrap bg-ink text-paper"
+            : "border border-rule bg-paper-2 text-ink-2"
         }`}
       >
         {fromUser ? text : <Markdown>{text}</Markdown>}
@@ -106,7 +116,7 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The chosen Endpoint and Model stay on screen above the Conversation, so
           it is always clear which one produced a Response. */}
-      <div className="px-4 pt-3">
+      <div className="px-4 pt-3 sm:px-6">
         <EndpointPicker endpointId={endpointId} onSelect={setEndpointId} />
 
         <ModelPicker
@@ -119,9 +129,12 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
         />
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6">
+      {/* `hm-scroll` reserves the scrollbar's gutter whether or not one is
+          drawn, so the Turns do not slide sideways the moment the Theme
+          changes — or the moment the first Turn makes this scrollable. */}
+      <div className="hm-scroll flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
         {messages.length === 0 && (
-          <p className="text-center text-sm text-zinc-500">
+          <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
             Send a message to begin a Conversation with {endpoint?.name ?? endpointId}.
           </p>
         )}
@@ -131,21 +144,15 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
       </div>
 
       {error && (
-        <p role="alert" className="px-4 pb-2 text-sm text-red-600">
-          {error.message}
+        <p role="alert" className="mx-4 mb-2 sm:mx-6">
+          <span className="hm-status hm-status--error">{error.message}</span>
         </p>
       )}
 
-      <div className="flex items-end gap-2 border-t border-black/[.08] px-4 py-3 dark:border-white/[.15]">
-        <button
-          type="button"
-          onClick={startFreshConversation}
-          disabled={messages.length === 0}
-          className="rounded-md border border-black/[.08] px-3 py-2 text-sm disabled:opacity-40 dark:border-white/[.15]"
-        >
-          New
-        </button>
-
+      {/* The composer wraps rather than shrinking: at a narrow width the field
+          takes its own full-width row and the controls sit beneath it, so no
+          button label is ever squeezed into two lines or clipped. */}
+      <div className="flex flex-wrap items-end gap-2 border-t border-rule bg-paper px-4 py-3 sm:px-6">
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -157,15 +164,27 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
           }}
           placeholder="Send a message…"
           rows={1}
-          className="flex-1 resize-none rounded-md border border-black/[.1] bg-transparent px-3 py-2 text-sm outline-none focus:border-black/30 dark:border-white/[.15] dark:focus:border-white/40"
+          aria-label="Message"
+          // `resize-y` rather than none: a one-row box cannot hold a long
+          // message, and the reader should be able to make room for it.
+          className="hm-field order-1 max-h-40 basis-full resize-y sm:order-none sm:max-h-none sm:basis-auto sm:flex-1"
         />
+
+        <button
+          type="button"
+          onClick={startFreshConversation}
+          disabled={messages.length === 0}
+          className="hm-btn hm-btn--quiet order-2 sm:order-none"
+        >
+          New
+        </button>
 
         {/* Disabled while a Response is in progress so Turns cannot interleave. */}
         <button
           type="button"
           onClick={handleSubmit}
           disabled={inProgress || input.trim().length === 0}
-          className="rounded-md bg-foreground px-4 py-2 text-sm text-background disabled:opacity-40"
+          className="hm-btn hm-btn--primary order-3 sm:order-none sm:ml-auto"
         >
           Send
         </button>
@@ -176,7 +195,7 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
           <button
             type="button"
             onClick={stop}
-            className="rounded-md border border-black/[.15] px-4 py-2 text-sm dark:border-white/[.2]"
+            className="hm-btn order-4 sm:order-none"
           >
             Stop
           </button>
@@ -185,7 +204,7 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
             <button
               type="button"
               onClick={handleRegenerate}
-              className="rounded-md border border-black/[.15] px-4 py-2 text-sm dark:border-white/[.2]"
+              className="hm-btn order-4 sm:order-none"
             >
               Regenerate
             </button>

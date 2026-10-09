@@ -201,7 +201,7 @@ function control(name: RegExp): HTMLButtonElement | null {
  */
 function turnsOnScreen(): string[] {
   return Array.from(
-    document.querySelectorAll<HTMLElement>(".rounded-2xl"),
+    document.querySelectorAll<HTMLElement>("[data-turn]"),
   ).map((bubble) => (bubble.textContent ?? "").trim());
 }
 
@@ -226,7 +226,7 @@ function lastRequestBody() {
  * right-aligned, a Response left — the same distinction a reader relies on.
  */
 function responseText() {
-  return Array.from(document.querySelectorAll<HTMLElement>(".justify-start .rounded-2xl"))
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-turn="response"]'))
     .map((bubble) => (bubble.textContent ?? "").trim())
     .join(" ");
 }

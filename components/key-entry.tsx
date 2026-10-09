@@ -38,7 +38,7 @@ export function KeyEntry({ endpointId, onStored }: KeyEntryProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="self-start rounded-md border border-black/[.08] px-2 py-1 text-xs dark:border-white/[.15]"
+        className="hm-btn hm-btn--quiet hm-btn--sm self-start"
       >
         Enter Credential
       </button>
@@ -107,25 +107,32 @@ function KeyEntryDialog({
   // window shorter than the dialog scrolls it, so the field and Save are both
   // still reachable instead of sitting below the fold.
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+    <div className="fixed inset-0 z-[var(--z-modal)] flex items-end justify-center bg-scrim p-4 sm:items-center">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="key-entry-heading"
-        className="max-h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 text-foreground shadow-lg dark:bg-zinc-900"
+        className="hm-panel hm-scroll max-h-full w-full max-w-md overflow-y-auto p-5 text-ink-2"
       >
-        <h2 id="key-entry-heading" className="text-sm font-semibold">
+        {/* The second and last place the display face appears: the dialog's own
+            heading, which is a heading and nothing else. */}
+        <h2 id="key-entry-heading" className="font-display text-md font-semibold text-ink">
           Credential for {endpointName}
         </h2>
 
-        <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-2">
-          <label className="text-xs font-medium text-zinc-500" htmlFor="key-entry-credential">
+        <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2">
+          {/* The variable name is a machine string and is set in the mono
+              register, so the reader can compare it character by character
+              against what the Endpoint picker reports. */}
+          <label className="hm-label" htmlFor="key-entry-credential">
             Credential for {envVar}
           </label>
 
           {/* `type="password"` so a Credential is not shown over a shoulder, and
               `autoComplete="off"` so nothing pre-fills it from what the browser
-              has remembered. The value here is only ever what was typed. */}
+              has remembered. The value here is only ever what was typed.
+              `aria-invalid` carries the refused case alongside the message
+              below it, so the state is never colour alone. */}
           <input
             id="key-entry-credential"
             type="password"
@@ -133,25 +140,18 @@ function KeyEntryDialog({
             autoComplete="off"
             spellCheck={false}
             disabled={sending}
+            aria-invalid={answer?.status === "refused" ? true : undefined}
             onChange={(event) => setCredential(event.target.value)}
-            className="rounded-md border border-black/[.1] bg-transparent px-2 py-1.5 font-mono text-sm outline-none focus:border-black/30 dark:border-white/[.15] dark:focus:border-white/40"
+            className="hm-field font-mono"
           />
 
           <KeyEntryMessage answer={answer} />
 
-          <div className="mt-1 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-black/[.08] px-3 py-1.5 text-sm dark:border-white/[.15]"
-            >
+          <div className="mt-2 flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="hm-btn">
               Close
             </button>
-            <button
-              type="submit"
-              disabled={sending || credential.length === 0}
-              className="rounded-md bg-foreground px-3 py-1.5 text-sm text-background disabled:opacity-40"
-            >
+            <button type="submit" disabled={sending || credential.length === 0} className="hm-btn hm-btn--primary">
               {sending ? "Storing..." : "Save"}
             </button>
           </div>
@@ -180,9 +180,12 @@ function KeyEntryDialog({
 function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
   if (answer === null) return null;
 
+  // Every branch below reserves its line whether or not it has anything to say,
+  // so the Save button does not jump up and down as the answers arrive.
+
   if (answer.status === "stored") {
     return (
-      <p role="status" className="text-xs text-green-700 dark:text-green-500">
+      <p role="status" className="hm-status hm-status--ok">
         Stored in {answer.envVar}. It is in use now — no restart needed.
       </p>
     );
@@ -194,7 +197,7 @@ function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
     // wrong with the Credential, and the fix is not something in the reader's
     // shell either.
     return (
-      <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
+      <p role="alert" className="hm-status hm-status--warn">
         {answer.envVar} is written to the environment file, but this process is not carrying it
         yet, so the Endpoint is still not Configured. Restart the dev server and enter it again.
       </p>
@@ -203,7 +206,7 @@ function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
 
   if (answer.status === "shadowed") {
     return (
-      <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
+      <p role="alert" className="hm-status hm-status--warn">
         {answer.envVar} was written to the environment file, but a value exported in your shell is
         the one being used, and it is not this Credential. Unset {answer.envVar} in the shell and
         restart it; until then this Endpoint keeps being called with the old value.
@@ -212,7 +215,7 @@ function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
   }
 
   return (
-    <p role="alert" className="text-xs text-red-600">
+    <p role="alert" className="hm-status hm-status--error">
       {answer.message}
     </p>
   );

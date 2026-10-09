@@ -92,10 +92,12 @@ function CopyButton({ code }: { code: string }) {
           })
           .catch(() => setCopied(false));
       }}
-      className={`absolute right-2 top-2 rounded border px-2 py-0.5 text-[11px] transition-opacity ${
-        code === "" ? "opacity-0" : "opacity-60 hover:opacity-100"
-      } border-black/[.12] bg-white/80 dark:border-white/[.2] dark:bg-zinc-800/80`}
+      className={`hm-btn hm-btn--quiet hm-btn--sm absolute right-2 top-2 font-mono transition-opacity ${
+        code === "" ? "opacity-0" : "opacity-70 hover:opacity-100"
+      }`}
     >
+      {/* Silent success: the label swaps to "Copied" and reverts on its own.
+          No toast — the reader is already looking at the button they pressed. */}
       {copied ? "Copied" : "Copy"}
     </button>
   );
@@ -118,7 +120,7 @@ const components: Components = {
         href={safe}
         target="_blank"
         rel="noopener noreferrer nofollow"
-        className="underline underline-offset-2 decoration-black/25 hover:decoration-black/60 dark:decoration-white/30 dark:hover:decoration-white/70"
+        className="text-accent underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current"
       >
         {children}
       </a>
@@ -126,16 +128,17 @@ const components: Components = {
   },
 
   // Deliberately absent: images. See the note at the top of this file.
-  img: ({ alt }: ElementProps) => (
-    <span className="italic text-black/50 dark:text-white/50">{alt || "image"}</span>
-  ),
+  img: ({ alt }: ElementProps) => <span className="text-muted">{alt || "image"}</span>,
 
   pre: ({ children }: ElementProps) => (
     <InsideCodeBlock.Provider value={true}>
       <div className="group relative my-3">
         {/* The code scrolls inside its own box instead of widening the Turn,
-            which is what keeps a long line usable in a narrow window. */}
-        <pre className="overflow-x-auto rounded-lg bg-black/[.06] p-3 text-[13px] leading-relaxed dark:bg-black/50">
+            which is what keeps a long line usable in a narrow window.
+            A tinted surface with a hairline, rather than a dark card: inside a
+            Conversation a code block has to sit under a light-mode and a
+            dark-mode surface without either one swallowing it. */}
+        <pre className="overflow-x-auto rounded-control border border-rule bg-paper-3 p-3 font-mono text-[0.8rem] leading-relaxed text-ink-2">
           {children}
         </pre>
         <CopyButton code={toPlainText(children).replace(/\n$/, "")} />
@@ -149,25 +152,26 @@ const components: Components = {
     }
 
     return (
-      <code className="rounded bg-black/[.07] px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/12">
+      <code className="rounded bg-paper-3 px-1 py-0.5 font-mono text-[0.9em] text-ink">
         {children}
       </code>
     );
   },
 
+  // Headings inside a Response step down from the app's own display scale —
+  // a Response is quoted material, not the page's own voice, so it should not
+  // compete with the app chrome around it.
   h1: ({ children }: ElementProps) => (
-    <h1 className="mt-4 mb-2 text-lg font-semibold first:mt-0">{children}</h1>
+    <h1 className="mt-4 mb-2 font-display text-md font-semibold first:mt-0">{children}</h1>
   ),
   h2: ({ children }: ElementProps) => (
-    <h2 className="mt-4 mb-2 text-base font-semibold first:mt-0">{children}</h2>
+    <h2 className="mt-4 mb-2 font-display text-base font-semibold first:mt-0">{children}</h2>
   ),
   h3: ({ children }: ElementProps) => (
-    <h3 className="mt-4 mb-1.5 text-sm font-semibold first:mt-0">{children}</h3>
+    <h3 className="mt-4 mb-1.5 font-display text-sm font-semibold first:mt-0">{children}</h3>
   ),
   h4: ({ children }: ElementProps) => (
-    <h4 className="mt-4 mb-1.5 text-sm font-semibold text-black/80 first:mt-0 dark:text-white/85">
-      {children}
-    </h4>
+    <h4 className="mt-4 mb-1.5 font-display text-sm font-semibold text-ink first:mt-0">{children}</h4>
   ),
   h5: ({ children }: ElementProps) => <h5 className="mt-3 mb-1 font-semibold">{children}</h5>,
   h6: ({ children }: ElementProps) => <h6 className="mt-3 mb-1 font-semibold">{children}</h6>,
@@ -179,26 +183,22 @@ const components: Components = {
   li: ({ children }: ElementProps) => <li className="my-1 pl-1">{children}</li>,
 
   blockquote: ({ children }: ElementProps) => (
-    <blockquote className="my-3 border-l-2 border-black/15 pl-3 text-black/75 dark:border-white/20 dark:text-white/80">
-      {children}
-    </blockquote>
+    <blockquote className="my-3 border-l-2 border-rule-2 pl-3 text-muted">{children}</blockquote>
   ),
 
-  hr: () => <hr className="my-4 border-black/10 dark:border-white/15" />,
+  hr: () => <hr className="my-4 border-rule" />,
 
   // Markdown tables are common in model output; they scroll rather than stretch.
   table: ({ children }: ElementProps) => (
-    <div className="my-3 overflow-x-auto rounded-lg border border-black/[.1] dark:border-white/[.15]">
+    <div className="my-3 overflow-x-auto rounded-control border border-rule">
       <table className="w-full border-collapse text-sm">{children}</table>
     </div>
   ),
   th: ({ children }: ElementProps) => (
-    <th className="border-b border-black/[.1] bg-black/[.04] px-3 py-2 text-left font-semibold dark:border-white/[.15] dark:bg-white/[.06]">
-      {children}
-    </th>
+    <th className="border-b border-rule bg-paper-3 px-3 py-2 text-left font-semibold">{children}</th>
   ),
   td: ({ children }: ElementProps) => (
-    <td className="border-b border-black/[.06] px-3 py-2 align-top dark:border-white/[.1]">{children}</td>
+    <td className="border-b border-rule-2 px-3 py-2 align-top">{children}</td>
   ),
 };
 

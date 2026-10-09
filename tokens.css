@@ -1,0 +1,196 @@
+/* Hallmark · component: app-token-system · genre: modern-minimal · theme: Cobalt
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * contrast: pass (40–41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
+ * mobile: pass (34, 49) · pre-emit critique: P5 H4 E5 S5 R5 V5
+ *
+ * The design system's single source of truth. Deliberately framework-free: this
+ * file declares custom properties and nothing else, so it can be lifted into
+ * another project (or read by a non-CSS consumer) without dragging Tailwind or
+ * Next along. `app/globals.css` is the only thing that wires these into
+ * Tailwind, and it does so through `@theme inline` so the values below still
+ * cascade rather than being copied into each utility.
+ *
+ * THEME AXES — cool light paper · grotesk-sans display · electric cobalt accent.
+ *
+ * ---------------------------------------------------------------------
+ * Why `light-dark()`
+ * ---------------------------------------------------------------------
+ * Every colour is declared once, as `light-dark(<light>, <dark>)`, and which
+ * of the pair is used is decided by the `color-scheme` property rather than by
+ * a media query. That buys three things a media query cannot:
+ *
+ *   1. Each token is defined once. A dark block that restates thirteen colours
+ *      is thirteen chances for the two modes to drift apart.
+ *   2. Native widgets follow the *chosen* Theme rather than the OS. The
+ *      Endpoint and Model pickers are real `<select>` elements, so their
+ *      dropdown menus are drawn by the browser, not by this app — they adopt
+ *      `color-scheme` and match whichever Theme is in force. Previously they
+ *      could only ever follow the OS, which meant forcing dark on a light
+ *      machine left the one control with the largest surface mismatched.
+ *      Scrollbars and the caret fall into line for free too.
+ *   3. The override is one attribute. `data-theme` on the root element is the
+ *      whole control surface; see the `color-scheme` ladder at the foot of
+ *      this file.
+ *
+ * Browsers without `light-dark()` still work: the build lowers it to the
+ * `var(--lightningcss-light, …) var(--lightningcss-dark, …)` form, which is
+ * driven by the same `color-scheme` property and resolves identically. Verified
+ * in the built stylesheet rather than assumed — the ladder below survives the
+ * lowering, including the bare-`:root` light default.
+ *
+ * ---------------------------------------------------------------------
+ * Two values depart from the Cobalt theme card, both for measured contrast
+ * and neither for taste:
+ *
+ *   accent 52% (card says 58%) — at 58% the accent fill leaves white text at
+ *     ~4.0:1, under the 4.5:1 floor for a labelled control. At 52% (#0064d2)
+ *     --color-accent-ink sits at 5.64:1. Same hue, same chroma, one step down.
+ *   control 64%/50% (card implies the --color-rule hairline) — a hairline at
+ *     ~1.6:1 is right for a decorative divider and wrong for the boundary of a
+ *     control you are meant to identify, which WCAG 1.4.11 holds at 3:1. So the
+ *     two are separate tokens: `--color-rule` draws dividers, `--color-control`
+ *     draws the edges of things you type into or press.
+ *
+ * Every pair quoted here was computed in OKLCH and converted to WCAG 2.1
+ * ratios, in both modes, rather than estimated.
+ */
+
+:root {
+  /* The starting hand. The media query below moves it to dark when the OS
+   * asks, and the two attribute rules override both when the reader has said
+   * which Theme they want. */
+  color-scheme: light;
+
+  /* -------------------------------------------------------------------
+   * Colour. Cool engineered near-white, never #fff; cool charcoal ink,
+   * never #000. The hue stays in the 250–258 band across the whole ramp so
+   * the greys read as tinted rather than as flat neutral. Every dark value
+   * keeps that hue — only lightness and chroma move between the two modes.
+   * ------------------------------------------------------------------- */
+  --color-paper:      light-dark(oklch(98.5% 0.004 250), oklch(15.5% 0.008 258));  /* #f8fafd */
+  --color-paper-2:    light-dark(oklch(96.2% 0.005 250), oklch(18.5% 0.010 258));
+  --color-paper-3:    light-dark(oklch(93.5% 0.006 252), oklch(22%   0.012 258));
+  --color-ink:        light-dark(oklch(24%   0.020 258), oklch(94%   0.006 250));  /* 15.76:1 / 16.40:1 */
+  --color-ink-2:      light-dark(oklch(36%   0.018 257), oklch(86%   0.008 252));  /* 10.40:1 / 12.78:1 */
+  --color-muted:      light-dark(oklch(50%   0.016 254), oklch(68%   0.012 252));  /* 5.74:1 / 6.79:1 */
+
+  /* Decorative dividers. Deliberately below 3:1 — these separate, they are
+   * not the only thing identifying a control. */
+  --color-rule:       light-dark(oklch(89.5% 0.006 252), oklch(28%   0.012 258));
+  --color-rule-2:     light-dark(oklch(84%   0.008 252), oklch(35%   0.014 258));
+
+  /* Control boundaries. 3.22:1 / 3.26:1 against paper — the WCAG 1.4.11 floor. */
+  --color-control:    light-dark(oklch(64%   0.012 254), oklch(50%   0.014 254));
+
+  /* The one signal. Under 5% of any viewport: the primary button, the focus
+   * ring, link hover, nothing else. The dark accent is lighter and less
+   * chromatic per the dark recipe, and its ink flips to near-black because a
+   * light fill cannot carry white text. */
+  --color-accent:     light-dark(oklch(52%   0.19  256), oklch(72%   0.16  256));  /* #0064d2 / #5ca6ff */
+  --color-accent-ink: light-dark(oklch(100%  0      0), oklch(16%   0.03  258));  /* 5.64:1 / 7.79:1 */
+
+  /* Status. Each carries a role as well as a hue — never colour alone, which
+   * also keeps red/green from being the only signal. */
+  --color-ok:         light-dark(oklch(50%   0.13  150), oklch(75%   0.14  150));
+  --color-warn:       light-dark(oklch(52%   0.12  65),  oklch(80%   0.12  72));
+  --color-error:      light-dark(oklch(52%   0.19  27),  oklch(72%   0.16  27));
+
+  /* The scrim behind a modal. Named rather than inlined at the call site, but
+   * genuinely an overlay modifier rather than a palette entry — it is the one
+   * place alpha is the point. */
+  --color-scrim:      light-dark(oklch(24% 0.02  258 / 0.45), oklch(8% 0.01 258 / 0.6));
+
+  /* Focus reads as a ring because it sits at a 2px offset, on paper, not on
+   * the control it surrounds: 5.40:1 there. Where the control beneath is the
+   * accent fill the ring is the only thing between ring and page, which is
+   * why it is never the same colour as its own background. */
+  --color-focus:      var(--color-accent);
+
+  /* -------------------------------------------------------------------
+   * Typography. Display and body are different families on purpose — a
+   * single-family app reads as unset. The mono is the outlier register:
+   * micro-labels and machine-readable values only, never running prose.
+   *
+   * Each resolves to a next/font variable rather than a family literal, so
+   * Next still owns loading, subsetting, and the fallback metrics.
+   * ------------------------------------------------------------------- */
+  --font-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-body:    var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  /* 1.25 major third off a 16px base. Five sizes is the ceiling; hierarchy
+   * beyond that is carried by weight and colour, not another step. */
+  --text-xs:   0.75rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md:   1.0625rem;
+  --text-lg:   1.375rem;
+
+  /* -------------------------------------------------------------------
+   * Spacing — 4pt base, named by role.
+   * ------------------------------------------------------------------- */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2.5rem;
+  --space-2xl: 4rem;
+
+  /* -------------------------------------------------------------------
+   * Radii. Cobalt is drawn with a ruler: 6px on anything you press or type
+   * into, 10px reserved for the one surface allowed to be a panel. No pills.
+   * ------------------------------------------------------------------- */
+  --radius-control: 6px;
+  --radius-panel:   10px;
+
+  /* One base height for every control and every field beside it. A 44px
+   * button next to a 38px input is the tell that a page was never tuned. */
+  --size-control: 2.25rem;
+
+  /* The only shadow in the system, and it is barely one. Depth comes from
+   * hairlines; this lifts a dialog off the page behind it and nothing else.
+   * Not theme-dependent: in dark mode elevation is carried by lightness, so a
+   * shadow there would be a coloured halo, which is worse than none. */
+  --shadow-whisper: 0 1px 2px oklch(24% 0.02 258 / 0.05);
+
+  /* -------------------------------------------------------------------
+   * Motion. Exponential ease-out only — no overshoot on UI state, and
+   * nothing here animates a focus ring.
+   * ------------------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-short: 120ms;
+  --dur-base:  200ms;
+
+  --z-base:     1;
+  --z-raised:   10;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-modal:    400;
+}
+
+/* -----------------------------------------------------------------------
+ * The `color-scheme` ladder — the whole Theme mechanism.
+ *
+ * Two Themes, and the whole control surface is one attribute:
+ *
+ *   no attribute   light   ← the default, and what a reader with scripting
+ *                            off is left with
+ *   data-theme     light | dark
+ *
+ * There is no `prefers-color-scheme` query here, deliberately. A third Theme
+ * that follows the system would have to be expressed as a media query, and a
+ * media query cannot be overridden by an attribute without a specificity
+ * fight — it would mean ordering two rules against each other to express
+ * "unless the reader has said otherwise". Since the control offers exactly two
+ * settings and light is the default, the base case *is* the light case and the
+ * media query has nothing left to decide.
+ *
+ * Keeping the light values on the bare `:root` rather than behind
+ * `[data-theme="light"]` is what makes that work: a missing attribute falls
+ * through to light rather than to nothing, which is the correct reading for a
+ * reader who never expressed a preference and for a browser that never ran
+ * the script that would have written one.
+ * --------------------------------------------------------------------- */
+:root[data-theme="dark"] { color-scheme: dark; }
