@@ -14,6 +14,13 @@ import { asText, looksBinary, toLines } from "./text";
  * two walks drift, and the second one is the one that skips a folder the
  * developer believes is searched without anything saying so.
  *
+ * The two read it differently, and the difference is paid for here rather than
+ * by the caller: a caller looking for text is handed the file's lines, and a
+ * caller looking for a **name** — the menu — is handed each entry without the
+ * file being opened at all, folders included. That is the same traversal, the
+ * same skip rules and the same ceilings either way, and it is the reason this
+ * can be one function rather than two.
+ *
  * Four things are bounded here, and each one exists because the alternative is a
  * hang rather than an answer:
  *
@@ -70,6 +77,21 @@ export type WalkedFile = {
   lines: string[];
 };
 
+/** One entry the walk reached without opening it. */
+export type WalkedEntry = {
+  /** The whole path, resolved, with no link left in it. */
+  path: string;
+  /** The path from the folder the walk started in, in `/` form. */
+  relative: string;
+  /** The name as the folder holds it, with no path in front of it. */
+  name: string;
+  /**
+   * What it is. A link is never among these: the walk passes those over, and a
+   * caller naming files has no use for a name that is not there to be named.
+   */
+  kind: "file" | "directory";
+};
+
 export type WalkRequest = {
   /** Where to start, already admitted and already resolved. */
   from: string;
@@ -78,8 +100,31 @@ export type WalkRequest = {
    *
    * Return `false` to stop the walk there and then, which is how a caller with a
    * cap of its own stops rather than being handed the rest and discarding it.
+   *
+   * Optional, and the walk reads nothing at all without it: a caller that is
+   * looking for a name is not charged for the contents of every file in the
+   * Root, which is what this walk used to cost by construction.
    */
-  visit(file: WalkedFile): boolean | Promise<boolean>;
+  visit?(file: WalkedFile): boolean | Promise<boolean>;
+  /**
+   * Told about every entry the walk reaches, folders and files alike, **without
+   * opening it**.
+   *
+   * This is how the `@` menu sees the Root. It wants names, and a menu that
+   * filtered by name by having every file's contents read into memory first
+   * would be paying a megabyte a file to answer a question about characters.
+   * It also wants folders, which `visit` never offers because a search descends
+   * into them rather than reporting them.
+   *
+   * Offered in the same order and under the same rules as everything else here:
+   * after the names and `.gitignore` rules have had their say, so a caller
+   * cannot be offered a `.env` file or a folder the developer excluded, and
+   * before the descent, so a folder comes before what is in it.
+   *
+   * Returning `false` stops the walk, for the same reason `visit` returning
+   * `false` does.
+   */
+  onEntry?(entry: WalkedEntry): boolean | Promise<boolean>;
   /**
    * Whether a file's path is one this caller wants, asked before the file is
    * opened.
@@ -141,7 +186,7 @@ export function isCredentialFile(name: string): boolean {
 }
 
 /** Walks a folder, offering each file it decides to look at. */
-export async function walkFiles({ from, visit, only, signal }: WalkRequest): Promise<WalkOutcome> {
+export async function walkFiles({ from, visit, onEntry, only, signal }: WalkRequest): Promise<WalkOutcome> {
   const outcome: WalkOutcome = { files: 0, foldersSkipped: 0, filesSkipped: 0, stopped: false };
 
   // The `.gitignore` files in force, innermost last. A rule written beside a file
@@ -187,6 +232,21 @@ export async function walkFiles({ from, visit, only, signal }: WalkRequest): Pro
         }
 
         if (entry.isDirectory()) {
+          // Offered before the descent, so a folder is named before what is in it
+          // — the order a reader browsing by name expects to read them in.
+          const named =
+            onEntry === undefined ||
+            (await onEntry({
+              path: child,
+              relative: childRelative,
+              name: entry.name,
+              kind: "directory",
+            }));
+          if (!named) {
+            outcome.stopped = true;
+            return;
+          }
+
           await descend(child, childRelative);
           continue;
         }
@@ -205,6 +265,21 @@ export async function walkFiles({ from, visit, only, signal }: WalkRequest): Pro
 
         // Asked before the file is opened, so the walk does not read a file it has
         // already decided it will not hand over and then not hand it over.
+        if (onEntry !== undefined) {
+          const named = await onEntry({
+            path: child,
+            relative: childRelative,
+            name: entry.name,
+            kind: "file",
+          });
+          if (!named) {
+            outcome.stopped = true;
+            return;
+          }
+        }
+
+        if (visit === undefined) continue;
+
         if (outcome.files >= MAX_WALK_FILES) {
           outcome.stopped = true;
           return;
@@ -237,8 +312,11 @@ export async function walkFiles({ from, visit, only, signal }: WalkRequest): Pro
  * The size is asked for before the file is opened, so a search does not pull
  * forty megabytes into memory to find out it was never going to look at them. The
  * bytes are then judged rather than assumed: a file that is not text is passed
- * over here rather than handed on, because the only two callers of this walk read
- * text, and one that decides for itself afterwards has already read them.
+ * over here rather than handed on, because the callers of this walk that read
+ * want text, and one that decides for itself afterwards has already read them.
+ *
+ * Never reached on the menu's path, and that is the point of it living here
+ * rather than in each caller: `onEntry` returns before this is called.
  */
 async function openAsLines(target: string): Promise<{ size: number; lines: string[] } | null> {
   const size = await sizeOf(target);
