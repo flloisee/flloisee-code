@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { z } from "zod";
 
 import { admitUnder } from "@/lib/roots/containment";
+import { decide } from "@/lib/roots/named-decision";
 import { resolveAgainstRoot } from "@/lib/roots/readable";
 import {
   declareRoot,
@@ -15,13 +16,16 @@ import { listDirectory, walkBoundary, type WalkRefusal } from "@/lib/roots/walk"
 
 /**
  * Declaring a Root: the reader says which folder the Model may read, and that
- * answer survives a restart.
+ * answer survives a restart — and answering, once or always, when they name a file
+ * that is not in it.
  *
- * Two capabilities in one route, and each is bounded rather than trusted. The
+ * Three capabilities in one route, and each is bounded rather than trusted. The
  * route lists folders, so a caller who could name any path would turn it into a
- * map of the developer's machine; and it writes a file recording a folder, which
- * is a capability a deployed build must not have at all — the same reasoning as
- * Key Entry, and refused the same way.
+ * map of the developer's machine; it writes a file recording a folder, which is a
+ * capability a deployed build must not have at all — the same reasoning as Key
+ * Entry, and refused the same way; and it holds the reader's own answer about a
+ * path they named until the next message is sent, which is the third reason a
+ * caller must not be able to do it for them.
  *
  * The browser does name a path, and that is deliberate rather than a compromise.
  * What it may only name is a path this route has just offered: every path below
@@ -48,11 +52,17 @@ const rootsRequestSchema = z.discriminatedUnion("action", [
   // approval policy does, so the browser never gets to say where a Grant lands.
   z.object({ action: z.literal("grant"), path: z.string().min(1) }).strict(),
   z.object({ action: z.literal("revoke"), path: z.string().min(1) }).strict(),
+  // The two a reader's own answer needs, given in the composer before the Turn
+  // exists. The path is the words the reader wrote, and it is kept exactly: the
+  // answer is held against that spelling, because that is the spelling they were
+  // shown when they gave it.
+  z.object({ action: z.literal("allow"), path: z.string().min(1) }).strict(),
+  z.object({ action: z.literal("deny"), path: z.string().min(1) }).strict(),
 ]);
 
 const MALFORMED_REQUEST =
-  'Naming a Root takes one of "read", "find", "declare", "forget", "grant", or "revoke" — ' +
-  'as { "action": "find", "path": ... } and so on.';
+  'Naming a Root takes one of "read", "find", "declare", "forget", "grant", "revoke", "allow", ' +
+  'or "deny" — as { "action": "find", "path": ... } and so on.';
 
 /**
  * What each refusal says.
@@ -89,13 +99,13 @@ const GRANT_REFUSED: Record<Exclude<Refusal, WalkRefusal>, string> = {
   "no-root":
     "No folder has been chosen for the Model to read, so there is nothing to allow " +
     "anything outside of. Choose a folder first.",
-  "already-granted":
+  "already-decided":
     "That path is already inside the folder the Model reads, so it is read without " +
-    "asking — there is nothing to remember about it.",
+    "asking — there is nothing to remember about it and nothing to decide.",
 };
 
 /** Why this route will not do what it was asked: the walk's reasons, or a Grant's. */
-type Refusal = WalkRefusal | "no-root" | "already-granted";
+type Refusal = WalkRefusal | "no-root" | "already-decided";
 
 function refused(reason: Refusal): Response {
   return Response.json(
@@ -144,6 +154,12 @@ export async function POST(request: Request) {
   if (action === "forget") {
     await forgetRoot({ dir: process.cwd() });
     return Response.json({ root: null, grants: [] });
+  }
+
+  if (action === "allow" || action === "deny") {
+    const answered = await answerDecision(action, parsed.data.path);
+    if (!answered.ok) return refused(answered.reason);
+    return Response.json(answered.body);
   }
 
   if (action === "grant" || action === "revoke") {
@@ -232,17 +248,76 @@ async function answerGrant(action: "grant" | "revoke", asked: string): Promise<G
     return { ok: true, body: { root: reading.root, grants: after.grants } };
   }
 
+  const admitted = await beyondRoot(reading, asked);
+  if (!admitted.ok) return { ok: false, reason: admitted.reason };
+
+  await grantPath({ dir, path: admitted.path });
+  const after = await readReadingRoot(dir);
+  return { ok: true, body: { root: reading.root, grants: after.grants } };
+}
+
+/**
+ * The reader's own answer about one path they named, held for the next send.
+ *
+ * **Nothing is written, and that is what these two answers are for.** A Grant
+ * lasts until the reader removes it, because a reader who pressed "always allow"
+ * has said something standing. "Allow once" and "Deny" have said something about
+ * one message, so they are held in this process and spent by the send they were
+ * given for — see `lib/roots/named-decision`.
+ *
+ * **They are here, on the route that writes, because the browser must not be able
+ * to mint one.** The check at send happens on the server, and a decision that
+ * arrived in the request would be a caller naming the path to be read: the exact
+ * primitive the chat route refuses by taking no path from a request at all. So
+ * the only way one exists is through this route, behind its development guard.
+ * That is also why "allow once" is refused in a deployed build, in the same words
+ * and for the same reason as "always allow" — one place decides whether a reader
+ * can widen the boundary at all.
+ *
+ * **The path is kept exactly as the reader wrote it.** Everything above resolves
+ * it and checks it; nothing here rewrites it. The recogniser is the same function
+ * in the composer and at send, so the string the reader was shown is the string
+ * the send looks up, and a spelling the reader never saw cannot be answered by an
+ * answer they did not give.
+ */
+async function answerDecision(action: "allow" | "deny", asked: string): Promise<GrantAnswer> {
+  const reading = await readReadingRoot(process.cwd());
+  if (reading.root === null) return { ok: false, reason: "no-root" };
+
+  const admitted = await beyondRoot(reading, asked);
+  if (!admitted.ok) return { ok: false, reason: admitted.reason };
+
+  decide(asked, action === "allow" ? "allowed" : "denied");
+
+  // The Grants as they stand, so a caller refreshing after an answer sees an
+  // unchanged list — one decision about one message has widened nothing.
+  return { ok: true, body: { root: reading.root, grants: reading.grants } };
+}
+
+/**
+ * A path the reader named that lies beyond the Root, admitted by the walk.
+ *
+ * The one gate the two decisions share, so a Grant and an answer for a single
+ * message cannot be admitted by two rules that might disagree about where a path
+ * points. Bounded by the walk exactly as a Root is, and refused when the Root
+ * already covers the path: nothing was ever asked about such a path, so recording
+ * anything about it would be a claim no decision of the reader's backs.
+ */
+async function beyondRoot(
+  reading: { root: string | null },
+  asked: string,
+): Promise<{ ok: true; path: string } | { ok: false; reason: Refusal }> {
+  if (reading.root === null) return { ok: false, reason: "no-root" };
+
   const wanted = resolveAgainstRoot(reading.root, asked);
   const admitted = await admitUnder([walkBoundary()], wanted);
 
   if (!admitted.admitted) return { ok: false, reason: admitted.reason };
 
   const covered = await admitUnder([reading.root], admitted.path);
-  if (covered.admitted) return { ok: false, reason: "already-granted" };
+  if (covered.admitted) return { ok: false, reason: "already-decided" };
 
-  await grantPath({ dir, path: admitted.path });
-  const after = await readReadingRoot(dir);
-  return { ok: true, body: { root: reading.root, grants: after.grants } };
+  return { ok: true, path: admitted.path };
 }
 
 /** A walk is a short local filesystem read; it needs no long ceiling. */

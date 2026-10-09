@@ -203,4 +203,44 @@ describe("the verdict on a path the reader named", () => {
 
     expect(answer.status).toBe("refused");
   });
+
+  it("carries which kind of refusal it was, because the composer acts on one of them", async () => {
+    await choose(await rootOnDisk());
+
+    // Everything else about a refusal is one sentence about something the app did
+    // not do. Only this says whether the reader has a decision to make, and the
+    // composer cannot tell them apart from the prose.
+    expect(await resolvePath("../project-other/private.ts")).toMatchObject({
+      status: "refused",
+      reason: "outside",
+    });
+    expect(await resolvePath("src/never-written.ts")).toMatchObject({
+      status: "refused",
+      reason: "unreadable",
+    });
+  });
+
+  it("says no folder has been chosen, rather than that every path is outside one", async () => {
+    // `mayRead` answers `outside` when there is no boundary at all, and passing
+    // that on would greet a reader who has never used the feature with "allow this
+    // path" for everything they type.
+    expect(await resolvePath("src/util.ts")).toMatchObject({
+      status: "refused",
+      reason: "no-root",
+    });
+  });
+
+  it("treats a refusal in an unknown shape as one nothing can act on, never as a question", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "outside", reason: "outside-the-whole-disk" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    const answer = await resolvePath("src/util.ts");
+
+    // An unrecognised reason is not a reason. Falling back to "outside" would put
+    // a question to the reader about a boundary this app cannot describe.
+    expect(answer).toMatchObject({ status: "refused", reason: "unknown" });
+  });
 });

@@ -3,6 +3,7 @@ import { convertToModelMessages, isStepCount, streamText } from "ai";
 import { z } from "zod";
 
 import { describeFailure } from "@/lib/chat/failure";
+import { attachNamedFiles } from "@/lib/chat/attach-named-files";
 import { findEndpoint } from "@/lib/endpoints/registry";
 import { resolveEndpoint } from "@/lib/endpoints/resolve";
 import { readReadingRoot } from "@/lib/roots/reading-root";
@@ -76,6 +77,53 @@ const chatRequestSchema = z.object({
   messages: z.array(messageSchema).min(1),
 });
 
+/**
+ * What the reader's last message of words said, as one string.
+ *
+ * The composer's `sendMessage({ text })` produces exactly one text part, and that
+ * is what is joined here. Everything else a message may hold is passed through
+ * untouched rather than flattened, because a part this route does not recognise is
+ * still the SDK's business and not a place to reach for the text.
+ */
+function lastUserText(messages: z.infer<typeof messageSchema>[]): string {
+  const last = messages.findLast((message) => message.role === "user");
+  if (last === undefined) return "";
+
+  return last.parts
+    .filter((part): part is { type: string; text: string } => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n\n");
+}
+
+/**
+ * The same history with the reader's last message of words replaced.
+ *
+ * Built rather than mutated, so the caller's array is never altered underneath it
+ * — this route does not own what it was sent — and mapped rather than spliced so
+ * the message's position and identity are exactly what they were. Only the *last*
+ * text part carries the attachment: a message the reader wrote is one block of
+ * their words, and appending after any earlier part would interleave their prose
+ * with a file's contents.
+ */
+function replaceLastUserText(
+  messages: z.infer<typeof messageSchema>[],
+  text: string,
+): z.infer<typeof messageSchema>[] {
+  const at = messages.findLastIndex((message) => message.role === "user");
+  if (at === -1) return messages;
+
+  return messages.map((message, index) => {
+    if (index !== at) return message;
+
+    const parts = [...message.parts];
+    const last = parts.findLastIndex((part) => part.type === "text");
+    if (last === -1) return message;
+
+    parts[last] = { ...parts[last], text };
+    return { ...message, parts };
+  });
+}
+
 export async function POST(request: Request) {
   const parsed = chatRequestSchema.safeParse(await request.json().catch(() => null));
 
@@ -136,6 +184,39 @@ export async function POST(request: Request) {
   // file reads, and no step ceiling to reason about.
   const canRead = reading.root !== null;
 
+  /**
+   * The files the reader named in this message, checked again and placed beside
+   * their words.
+   *
+   * **This is the recheck, and it is the only thing standing between a message and
+   * a file that is no longer there.** The composer asked about each of these paths
+   * before the Turn existed; between that question and this one a file can be
+   * deleted and the Root can be moved, and a message that quietly loses a file
+   * reads to the Model as a complete answer about the wrong set of files. So the
+   * Turn is refused, naming the file, rather than sent short.
+   *
+   * **What is named is not what is chosen.** The recogniser is the same function
+   * the composer used, so the paths checked here are the paths the reader was
+   * shown — but no path arrives in a field. The request carries a *message*, this
+   * finds paths in it, and each one goes through `mayRead` exactly as a Tool Call
+   * does. There is nothing a caller can post to have a path read, which is the
+   * property the schema above was written for and the reason it is not weakened
+   * here by a list of attachments.
+   *
+   * Only the last message the reader wrote is rewritten, and only for the copy the
+   * Endpoint receives: the bubble in their Conversation keeps their own words, and
+   * the Turns before this one are history that has already been dealt with.
+   */
+  const asked = lastUserText(messages);
+  const attached = await attachNamedFiles(reading, asked);
+  if (!attached.ok) {
+    return Response.json({ error: attached.error }, { status: 400 });
+  }
+  // Untouched when the message named nothing: a Turn that is not about a file is
+  // the Turn it was before this feature, and rebuilding its history to say so
+  // would be a change with nothing behind it.
+  const withFiles = attached.text === asked ? messages : replaceLastUserText(messages, attached.text);
+
   // ai@7: streamText returns synchronously and must NOT be awaited.
   // convertToModelMessages is async and MUST be awaited.
   //
@@ -164,7 +245,7 @@ export async function POST(request: Request) {
         }
       : {}),
     messages: await convertToModelMessages(
-      messages as Parameters<typeof convertToModelMessages>[0],
+      withFiles as Parameters<typeof convertToModelMessages>[0],
     ),
     abortSignal: request.signal,
   });

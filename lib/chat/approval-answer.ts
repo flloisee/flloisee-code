@@ -13,6 +13,29 @@ import { isAwaitingApproval, isToolCall, type ToolCallPart } from "./tool-part";
  * than as a failure. One field, one name, and the whole module is about not
  * having two ids to choose between at the call site.
  */
+/**
+ * What the reader's answer said, in words.
+ *
+ * These three sentences are what the settled row shows next to the read, so they
+ * are the app's account of the reader's decision to whoever reads the transcript
+ * later. They are written here rather than at the call site so that "allow once"
+ * and "always allow" cannot drift into saying the same thing: they are not the
+ * same decision, and a reader who allows a path once is not saying anything about
+ * the next Turn.
+ *
+ * **Held here rather than in the component, because there are two places that draw
+ * the same three answers.** A reader gives them about a Tool Call the Model reached
+ * for, and about a file they named themselves; the answers are the same decision
+ * about the same boundary and are worded the same way, and the composer reuses
+ * these strings rather than writing its own. A second set of words for the same
+ * three buttons would be a second vocabulary for one decision, which is exactly
+ * what a reader would have to learn twice.
+ */
+export const ALLOWED_ONCE = "You allowed this read.";
+export const ALLOWED_ALWAYS = "You allowed this read, and any after it at this path.";
+export const READ_REFUSED = "You chose not to let this read happen.";
+
+/** One answer to one question about a read outside the Root. */
 export type ApprovalAnswer = {
   /** `part.approval.id` of the request being answered. */
   id: string;

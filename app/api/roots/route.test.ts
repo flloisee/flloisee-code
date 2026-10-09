@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { readRouteJSON } from "@/lib/http/route-answer";
+import { clearDecisions, takeDecisions } from "@/lib/roots/named-decision";
 import {
   setEnvVar,
   temporaryProject,
@@ -52,6 +53,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // The decisions a route records are held in this process, not in the project
+  // directory `end()` removes, so they are cleared here rather than by the
+  // throwaway project.
+  clearDecisions();
   process.env.HOME = realHome;
   await end();
 });
@@ -401,5 +406,128 @@ describe("removing a Grant", () => {
     await rootsRequest({ action: "forget" });
 
     expect(await readRootFile()).toBeNull();
+  });
+});
+
+/**
+ * Deciding about one path, once, for one message.
+ *
+ * The other two answers a reader gives when they name a file themselves. Unlike a
+ * Grant these leave nothing on disk: they are held by this process until the next
+ * send spends them, which is what makes them "once" rather than "always".
+ *
+ * They are here, on the route that writes, for the reason every other write is:
+ * **the browser must not be able to mint one.** A decision that arrived in the
+ * request would be a request-supplied path being read, which is exactly the
+ * primitive this route's development guard and the chat route's refusal of a Root
+ * from a request exist to prevent.
+ */
+describe("deciding about a path the reader named", () => {
+  /** A file outside the Root, named the way a reader pastes it. */
+  async function elsewhere(): Promise<string> {
+    const folder = path.join(here, "elsewhere");
+    await mkdir(folder, { recursive: true });
+    const file = path.join(folder, "notes.md");
+    await writeFile(file, "ship the thing\n", "utf8");
+    return file;
+  }
+
+  beforeEach(async () => {
+    await rootsRequest({ action: "declare", path: path.join(here, "my-project") });
+  });
+
+  it("reaches the send that follows it, which is the whole point of the answer", async () => {
+    const asked = await elsewhere();
+
+    const response = await rootsRequest({ action: "allow", path: asked });
+
+    expect(response.status).toBe(200);
+    expect(takeDecisions().get(asked)).toBe("allowed");
+  });
+
+  it("writes nothing to disk, so an answer about one message leaves no standing grant", async () => {
+    const asked = await elsewhere();
+    const before = await readRootFile();
+
+    await rootsRequest({ action: "allow", path: asked });
+
+    // A Grant is the answer that lasts; this one must not turn into one by
+    // accident, or "allow once" would be "allow always" with a different label.
+    expect(await readRootFile()).toBe(before);
+    expect(JSON.parse(before ?? "{}").grants).toEqual([]);
+  });
+
+  it("is spent by the first send that follows, so the second message asks again", async () => {
+    const asked = await elsewhere();
+
+    await rootsRequest({ action: "allow", path: asked });
+    takeDecisions();
+
+    // The Turn was decided by the answers that were on the books when it arrived.
+    // Anything recorded afterwards is for whatever the reader writes next.
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("remembers a refusal as readily as a yes, because refusing one file must not end the Turn", async () => {
+    const asked = await elsewhere();
+
+    const response = await rootsRequest({ action: "deny", path: asked });
+
+    expect(response.status).toBe(200);
+    expect(takeDecisions().get(asked)).toBe("denied");
+  });
+
+  it("is refused outside development, because a deployed build must not mint decisions", async () => {
+    await elsewhere();
+    setEnvVar("NODE_ENV", "production");
+
+    const response = await rootsRequest({ action: "allow", path: path.join(here, "elsewhere", "notes.md") });
+
+    expect(response.status).toBe(404);
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("refuses a path the walk would not itself offer, so a decision cannot reach further than a Grant", async () => {
+    const response = await rootsRequest({ action: "allow", path: "/etc/passwd" });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("home folder") });
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("refuses a path the Root already covers, because no question was ever asked about it", async () => {
+    await mkdir(path.join(here, "my-project", "src"), { recursive: true });
+
+    const response = await rootsRequest({ action: "allow", path: "src" });
+
+    expect(response.status).toBe(400);
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("refuses a path that is not there, rather than answering for a file that is not", async () => {
+    const response = await rootsRequest({ action: "allow", path: "../elsewhere/never-written.md" });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("moved or deleted") });
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("refuses when no Root has been chosen, because a decision is an addition to one", async () => {
+    await rootsRequest({ action: "forget" });
+    const asked = await elsewhere();
+
+    const response = await rootsRequest({ action: "allow", path: asked });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("folder") });
+    expect(takeDecisions().size).toBe(0);
+  });
+
+  it("does not add to the Grant list, so the reader's standing decisions stay visible as they are", async () => {
+    await elsewhere();
+
+    const response = await rootsRequest({ action: "allow", path: "../elsewhere/notes.md" });
+
+    expect((await answerOf(response)).grants).toEqual([]);
   });
 });

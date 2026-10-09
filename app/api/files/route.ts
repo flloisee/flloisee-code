@@ -83,24 +83,50 @@ const REFUSED = {
   unreadable:
     "There is nothing at that path. It may have been moved or deleted since you named it.",
   unusable: "That is not a path that can be read — a path cannot carry a null byte.",
+  "no-root":
+    "You have not chosen a folder for the Model to read yet, so there is nothing to look " +
+    "inside of. Choose one in Settings.",
   gone:
     "The folder you chose is no longer there, so there is nothing to look through. Choose it again in Settings.",
 } as const;
 
-function refused(reason: keyof typeof REFUSED): Response {
-  return Response.json({ error: REFUSED[reason] }, { status: 400 });
+/**
+ * Why this route will not answer, alongside the sentence about it.
+ *
+ * Sent on every refusal and on nothing else, because the interface has to *act*
+ * differently on one of these rather than merely say something different. A path
+ * outside the Root is a question the reader has not been asked yet, and it is put
+ * to them in the composer; a path that is not there is a word they mistyped, and
+ * putting a question to them about it would be a question none of the three
+ * answers can act on.
+ *
+ * `mayRead` answers `outside` for everything when no Root has been declared,
+ * because with no boundary at all nothing can be inside one. That is the right
+ * answer for containment and the wrong one for the interface, so the no-Root case
+ * is named here before `mayRead` is asked — a machine that has never used this
+ * feature should not greet every path with "outside the folder you chose".
+ */
+type Refusal = keyof typeof REFUSED;
+
+function refused(reason: Refusal): Response {
+  return Response.json({ error: REFUSED[reason], reason }, { status: 400 });
 }
 
 export async function POST(request: Request) {
   const parsed = filesRequestSchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {
-    return Response.json({ error: MALFORMED_REQUEST }, { status: 400 });
+    return Response.json({ error: MALFORMED_REQUEST, reason: "malformed" }, { status: 400 });
   }
 
   const reading = await readReadingRoot(process.cwd());
 
   if (parsed.data.action === "resolve") {
+    // Asked here rather than taken from `mayRead`'s own answer, because with no
+    // Root there are no boundaries and `mayRead` says `outside` for everything —
+    // true, and a question the composer could not put to anyone.
+    if (reading.root === null) return refused("no-root");
+
     const allowed = await mayRead(reading, parsed.data.path);
     if (!allowed.readable) return refused(allowed.reason);
 
@@ -113,10 +139,7 @@ export async function POST(request: Request) {
     // which is both a confusing thing to read and one the Tools would have to
     // resolve to be sure of. So a Grant's answer is the absolute path, and the
     // asymmetry is deliberate rather than an oversight.
-    const named =
-      allowed.under === "root" && reading.root !== null
-        ? path.relative(reading.root, allowed.path)
-        : allowed.path;
+    const named = allowed.under === "root" ? path.relative(reading.root!, allowed.path) : allowed.path;
 
     return Response.json({
       path: named,

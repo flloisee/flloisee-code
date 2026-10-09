@@ -64,7 +64,29 @@ export type ResolvedFile =
       kind: "file" | "directory";
       size: number | null;
     }
-  | { status: "refused"; message: string };
+  | { status: "refused"; message: string; reason: Verdict };
+
+/**
+ * What kind of refusal this is, and the one kind that puts a question to the
+ * reader rather than a sentence on screen.
+ *
+ * `outside` is the only one. A path the Root does not cover and no Grant does is
+ * the reader's own decision to make — they named the file, the Model did not ask —
+ * and every other refusal is a sentence they can act on by fixing a word: the
+ * path is not there, it is not a path, no folder has been chosen, or the folder
+ * itself has gone.
+ *
+ * `unknown` rather than a default of `outside`: a body this file cannot read is a
+ * route that has answered in a form it does not know, and reading that as
+ * "outside" would put a question to the reader about a boundary it cannot
+ * describe. The narrow answer is the safe one, and it is also the honest one.
+ */
+export type Verdict = "outside" | "unreadable" | "unusable" | "no-root" | "gone" | "unknown";
+
+/** The reasons the route names, so an unrecognised one is `unknown` rather than a guess. */
+const verdictSchema = z
+  .enum(["outside", "unreadable", "unusable", "no-root", "gone", "unknown"])
+  .catch("unknown");
 
 const UNREACHABLE = "Could not reach the app's file route.";
 const UNREADABLE_ANSWER = "The app's file route answered in an unexpected form.";
@@ -92,6 +114,30 @@ function refusalFrom(status: number, body: unknown): { status: "refused"; messag
   };
 }
 
+/**
+ * A refusal on a path, and what kind it was, read apart from its sentence.
+ *
+ * The route puts `reason` beside `error` for exactly this: the composer has to put
+ * a question to the reader for one of these and only show a note for the rest, and
+ * the two are otherwise the same shape of thing — one sentence about something
+ * that was not done. Parsed rather than taken as given, so a body without one is
+ * `unknown`, which is nothing to act on, rather than `outside`, which would be a
+ * question to the reader about a boundary nobody described.
+ */
+function verdictFrom(
+  status: number,
+  body: unknown,
+): { status: "refused"; message: string; reason: Verdict } {
+  const said = refusalFrom(status, body).message;
+  const reason = (body as { reason?: unknown } | null)?.reason;
+
+  return {
+    status: "refused",
+    message: said,
+    reason: verdictSchema.parse(reason),
+  };
+}
+
 /** The menu's answer: what is in the Root, filtered by what was typed after the `@`. */
 export async function findFiles(query: string): Promise<FileAnswer> {
   const { status, body } = await post({ action: "find", query });
@@ -115,10 +161,14 @@ export async function findFiles(query: string): Promise<FileAnswer> {
 export async function resolvePath(asked: string): Promise<ResolvedFile> {
   const { status, body } = await post({ action: "resolve", path: asked });
 
-  if (status !== 200) return refusalFrom(status, body);
+  if (status !== 200) return verdictFrom(status, body);
 
   const parsed = resolvedSchema.safeParse(body);
-  if (!parsed.success) return { status: "refused", message: UNREADABLE_ANSWER };
+  // A 200 in a shape this file does not recognise is a refusal of its own, and
+  // never a verdict: `unknown` is the answer, because nothing here can say whether
+  // the path is inside the boundary or beyond it, and guessing "outside" would put
+  // a question to the reader about a file nobody has checked.
+  if (!parsed.success) return { status: "refused", message: UNREADABLE_ANSWER, reason: "unknown" };
 
   return { status: "resolved", ...parsed.data };
 }

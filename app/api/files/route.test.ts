@@ -398,3 +398,84 @@ describe(VERDICT, () => {
     expect((await filesRequest({ action: "resolve", path: "" })).status).toBe(400);
   });
 });
+
+/**
+ * Why a path was refused, in words the composer can act on.
+ *
+ * The composer has to decide what to do with a refusal, and the only thing that
+ * separates the two behaviours is what *kind* of refusal it is: a path outside the
+ * Root puts a question to the reader, and every other refusal puts a sentence on
+ * screen. It cannot tell them apart from the prose — both are one sentence about
+ * something that was not done — so the reason travels beside the sentence rather
+ * than being parsed out of it.
+ *
+ * It does not travel in the 200. A body the interface already parses strictly
+ * gains no field here: `path`, `under`, `kind` and `size` are the whole answer to
+ * a question, and a caller that sent something this app does not understand is
+ * told so rather than handed a shape it might act on.
+ */
+const WHY = "a refusal that says what kind it is";
+
+describe(WHY, () => {
+  it("names a path beyond the Root as the one that puts a question to the reader", async () => {
+    await declare(inRoot);
+
+    const response = await filesRequest({
+      action: "resolve",
+      path: "../project-other/private.ts",
+    });
+    const body = await answerOf(response);
+
+    // This is the one refusal the composer turns into an ask rather than a note,
+    // and the only one that means "the reader has not been asked about this yet".
+    expect(response.status).toBe(400);
+    expect(body.reason).toBe("outside");
+  });
+
+  it("names a path that is not there as a typo rather than as a boundary", async () => {
+    await declare(inRoot);
+
+    const body = await answerOf(
+      await filesRequest({ action: "resolve", path: "src/never-written.ts" }),
+    );
+
+    // A reader who mistyped has a word to fix, not a decision to make, and asking
+    // them to allow a file that is not there would be a question none of the
+    // answers can act on.
+    expect(body.reason).toBe("unreadable");
+  });
+
+  it("names an unusable path as one, so a null byte is not read as a boundary", async () => {
+    await declare(inRoot);
+
+    const body = await answerOf(
+      await filesRequest({ action: "resolve", path: "src/util\u0000.ts" }),
+    );
+
+    expect(body.reason).toBe("unusable");
+  });
+
+  it("names a machine with no folder chosen as that, rather than as everything being outside one", async () => {
+    // `mayRead` answers `outside` for every path when there is no Root, because
+    // with no boundary at all nothing can be inside one. Passing that on
+    // unchanged would put "you have not chosen a folder" to the reader as "allow
+    // this path", which is not a question any of the three answers can act on.
+    const body = await answerOf(await filesRequest({ action: "resolve", path: "src/util.ts" }));
+
+    expect(body.reason).toBe("no-root");
+  });
+
+  it("names a request it could not read as that, rather than as a boundary", async () => {
+    const body = await answerOf(await filesRequest({ action: "search" }));
+
+    expect(body.reason).toBe("malformed");
+  });
+
+  it("never puts a reason on a success, because an answer cannot be handed one it did not ask for", async () => {
+    await declare(inRoot);
+
+    const body = await answerOf(await filesRequest({ action: "resolve", path: "src/util.ts" }));
+
+    expect(Object.keys(body)).toEqual(["path", "under", "kind", "size"]);
+  });
+});

@@ -116,6 +116,13 @@ Every request goes from your browser to this app's server and out to the Endpoin
 request ever travels browser-to-Endpoint directly, so no Credential is ever inlined into a
 request the browser builds or into the client bundle.
 
+**A Turn's contents are whatever the reader attached and whatever the Model read, sent to
+whichever Endpoint was selected.** Both halves land in the same Conversation and in the same
+Saved Conversation, and either may be a file off this machine. The Endpoint and Model in use
+are named above the composer rather than only in the transcript, so the destination is read at
+the moment a file is named — and a file is named as text inside the message, never as a file
+part, because most of the Endpoints in the Catalog would not take one.
+
 One consequence is worth stating plainly: **the security posture here depends on the app
 staying local and single-user.** Proxying means the server holds every user's Credential —
 fine for one person on their own machine, not for many. Hosting it would need both an

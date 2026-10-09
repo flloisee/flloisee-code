@@ -3,6 +3,11 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 
 import type { ApprovalAnswer } from "@/lib/chat/approval-answer";
+import {
+  ALLOWED_ALWAYS,
+  ALLOWED_ONCE,
+  READ_REFUSED,
+} from "@/lib/chat/approval-answer";
 import type { ToolCallPart } from "@/lib/chat/tool-part";
 import { grantPath } from "@/lib/roots/declare-root";
 
@@ -37,20 +42,6 @@ export function ApprovalAnswering({
 }
 
 /**
- * What the reader's answer said, in words.
- *
- * These three sentences are what the settled row shows next to the read, so they
- * are the app's account of the reader's decision to whoever reads the transcript
- * later. They are written here rather than at the call site so that "allow once"
- * and "always allow" cannot drift into saying the same thing: they are not the
- * same decision, and a reader who allows a path once is not saying anything about
- * the next Turn.
- */
-const ALLOWED_ONCE = "You allowed this read.";
-const ALLOWED_ALWAYS = "You allowed this read, and any after it at this path.";
-const REFUSED = "You chose not to let this read happen.";
-
-/**
  * The three answers, drawn on the row that is asking.
  *
  * Returned by a component rather than rendered by `ToolCall` so that `ToolCall`
@@ -59,6 +50,11 @@ const REFUSED = "You chose not to let this read happen.";
  * of what answering involves. Nothing is drawn at all for a part that is not a
  * question the reader has to answer: a read a Grant covered was decided for them,
  * and a read that has already been answered cannot be answered again.
+ *
+ * **The words are shared, not copied.** A reader who names a file themselves gets
+ * the same three answers in the composer, before the Turn exists, and this is the
+ * only place they are written down — see `ALLOWED_ONCE` in
+ * `lib/chat/approval-answer`.
  */
 export function ApprovalControls({ part }: { part: ToolCallPart }) {
   const answer = useContext(Answering);
@@ -139,7 +135,7 @@ export function ApprovalControls({ part }: { part: ToolCallPart }) {
           disabled={answering}
           onClick={() => {
             setAnswering(true);
-            answer({ id, approved: false, reason: REFUSED });
+            answer({ id, approved: false, reason: READ_REFUSED });
           }}
           className="hm-btn hm-btn--quiet hm-btn--sm"
         >

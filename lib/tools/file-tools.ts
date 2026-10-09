@@ -193,25 +193,8 @@ function makeTools(reading: ReadingRoot) {
           .optional()
           .describe("Folder to list, relative to the project root. Omit for the project root itself."),
       }),
-      execute: async ({ path: asked }, options): Promise<ListingOrRefusal> => {
-        const allowed = await admitPath(reading, asked ?? ".", answeredFor(options));
-        if (isRefusal(allowed)) return allowed;
-
-        const entries = await fs.readdir(allowed.path, { withFileTypes: true }).catch(() => null);
-        if (entries === null) return notAFolder(allowed.path);
-
-        const name = await namer(reading, allowed.under);
-        const sorted = [...entries].sort(byKindThenName);
-
-        return {
-          ok: true,
-          path: name(allowed.path),
-          entries: await describeEntries(name, allowed.path, sorted),
-          total: sorted.length,
-          more: sorted.length > Math.min(sorted.length, MAX_LIST_ENTRIES),
-          note: listingNote(Math.min(sorted.length, MAX_LIST_ENTRIES), sorted.length),
-        };
-      },
+      execute: async ({ path: asked }, options): Promise<ListingOrRefusal> =>
+        listNamedFolder(reading, asked ?? ".", options as CallOptions),
     }),
 
     read_file: tool({
@@ -236,32 +219,12 @@ function makeTools(reading: ReadingRoot) {
           .optional()
           .describe(`Most lines to return, up to ${MAX_READ_LINES}. Omit for the default.`),
       }),
-      execute: async ({ path: asked, offset, limit }, options): Promise<FileReadOrRefusal> => {
-        const allowed = await admitPath(reading, asked, answeredFor(options));
-        if (isRefusal(allowed)) return allowed;
-
-        const stat = await fs.stat(allowed.path).catch(() => null);
-        if (stat === null) return containmentRefusal(asked, "unreadable");
-        if (!stat.isFile()) return notAFile(allowed.path);
-
-        const name = (await namer(reading, allowed.under))(allowed.path);
-
-        if (stat.size > MAX_FILE_BYTES) return tooLarge(name, stat.size);
-
-        const bytes = await fs.readFile(allowed.path).catch(() => null);
-        if (bytes === null) return containmentRefusal(asked, "unreadable");
-        if (looksBinary(bytes)) return notText(name);
-
-        const start = askOffset(offset);
-        if (typeof start !== "number") return start;
-
-        return readLines({
-          name,
-          lines: toLines(asText(bytes)),
-          start,
-          limit: askLimit(limit),
-        });
-      },
+      execute: async ({ path: asked, offset, limit }, options): Promise<FileReadOrRefusal> =>
+        readNamedFile(reading, asked, {
+          offset,
+          limit,
+          ...(options as CallOptions),
+        }),
     }),
 
     search_files: tool({
@@ -294,7 +257,11 @@ function makeTools(reading: ReadingRoot) {
       execute: async ({ query, path: asked, glob }, options): Promise<SearchOrRefusal> => {
         if (query.trim() === "") return nothingToSearchFor();
 
-        const allowed = await admitPath(reading, asked ?? ".", answeredFor(options));
+        const allowed = await admitPath(
+          reading,
+          asked ?? ".",
+          answeredFor(options),
+        );
         if (isRefusal(allowed)) return allowed;
 
         const only = glob === undefined ? null : compileGlob(glob);
@@ -359,6 +326,114 @@ export function askedPath(input: { path?: string }): string {
 
 export function fileTools(reading: ReadingRoot): FileTools {
   return makeTools(reading);
+}
+
+/** How much of one file to send, and on whose authority. */
+export type ReadOptions = {
+  offset?: number;
+  limit?: number;
+  /**
+   * The reader having said yes to *this* read, when the Tools' own history is not
+   * where the answer came from.
+   *
+   * The three Tools learn it from the signed approval the SDK hands them, because
+   * that is the only place an answer can arrive from mid-Turn. A reader who named
+   * the file themselves answered in the composer, before there was a Turn to carry
+   * an approval, so the server's own record is the channel — and this is where that
+   * one comes in. Both are the same fact about the same decision; which channel it
+   * travelled is not a difference the read should care about.
+   */
+  answered?: boolean;
+} & Partial<CallOptions>;
+
+/**
+ * Whether this read was allowed one Turn by the reader.
+ *
+ * `answered` wins when it is given, because a caller that has one is telling us
+ * about this call specifically rather than about a history it happens to hold.
+ */
+function answeredFor(input: ReadOptions): boolean {
+  if (input.answered !== undefined) return input.answered;
+  if (input.toolCallId === undefined || input.messages === undefined) return false;
+  return readerApproved(input.messages, input.toolCallId);
+}
+
+/**
+ * What one file is, read and line-numbered, or why it was not read.
+ *
+ * The Tool calls this, and so does the composer when a reader names a file in a
+ * message. One implementation rather than two because the second thing that
+ * matters about a named file is that it is refused exactly as the Tools refuse
+ * one: binary bytes refused rather than mangled, a file past the byte cap refused
+ * rather than half-sent, a `..` or a link out of the Root refused by the same
+ * `mayRead`. A named file that reached the Model through a second code path would
+ * be a file with a second set of rules, and the second set is the one nobody
+ * remembers to check.
+ */
+export async function readNamedFile(
+  reading: ReadingRoot,
+  asked: string,
+  input: ReadOptions = {},
+): Promise<FileReadOrRefusal> {
+  const allowed = await admitPath(reading, asked, answeredFor(input));
+  if (isRefusal(allowed)) return allowed;
+
+  const stat = await fs.stat(allowed.path).catch(() => null);
+  if (stat === null) return containmentRefusal(asked, "unreadable");
+  if (!stat.isFile()) return notAFile(allowed.path);
+
+  const name = (await namer(reading, allowed.under))(allowed.path);
+
+  if (stat.size > MAX_FILE_BYTES) return tooLarge(name, stat.size);
+
+  const bytes = await fs.readFile(allowed.path).catch(() => null);
+  if (bytes === null) return containmentRefusal(asked, "unreadable");
+  if (looksBinary(bytes)) return notText(name);
+
+  const start = askOffset(input.offset);
+  if (typeof start !== "number") return start;
+
+  return readLines({
+    name,
+    lines: toLines(asText(bytes)),
+    start,
+    limit: askLimit(input.limit),
+  });
+}
+
+/**
+ * What one folder holds, or why it was not opened.
+ *
+ * The other half of the same extraction, and for the same reason: a reader who
+ * names a folder is naming something to look at, and a folder's listing is what
+ * the Model would otherwise have to call `list_files` for — a round trip to learn
+ * something the reader had already pointed at. A folder sent as its listing and a
+ * folder sent as its contents would also be two different messages, and the second
+ * one has no ceiling on it at all.
+ */
+export async function listNamedFolder(
+  reading: ReadingRoot,
+  asked: string,
+  input: ReadOptions = {},
+): Promise<ListingOrRefusal> {
+  const allowed = await admitPath(reading, asked, answeredFor(input));
+  if (isRefusal(allowed)) return allowed;
+
+  const entries = await fs.readdir(allowed.path, { withFileTypes: true }).catch(() => null);
+  if (entries === null) return notAFolder(allowed.path);
+
+  const name = await namer(reading, allowed.under);
+  const sorted = [...entries].sort(byKindThenName);
+  const shown = Math.min(sorted.length, MAX_LIST_ENTRIES);
+
+  return {
+    ok: true,
+    path: name(allowed.path),
+    entries: await describeEntries(name, allowed.path, sorted),
+    total: sorted.length,
+    more: shown < sorted.length,
+    note: listingNote(shown, sorted.length),
+  };
 }
 
 /** Folders first, then files, then links, and each group by name. */
@@ -433,10 +508,6 @@ export type Admitted = Extract<Readable, { readable: true }>;
  */
 type CallOptions = { toolCallId: string; messages: ModelMessage[] };
 
-/** Whether the reader said yes to this call, in the history it arrived with. */
-function answeredFor(options: CallOptions): boolean {
-  return readerApproved(options.messages, options.toolCallId);
-}
 
 /**
  * The one gate every path the Model names goes through.

@@ -15,6 +15,7 @@ import type { SavedConversation } from "@/lib/conversations/store";
 
 import { useFileMenu } from "./file-menu";
 import { Markdown } from "./markdown";
+import { useNamedFiles } from "./named-files";
 import { ToolCall } from "./tool-call";
 
 export type ChatProps = {
@@ -201,6 +202,20 @@ export function Chat({
     query: mention?.query ?? null,
     onPick: insertPath,
   });
+
+  /**
+   * The files this message is about, resolved as it is written.
+   *
+   * A reader names a file by pasting where it is as often as by picking it from
+   * the Root, and the pasted one may be anywhere on the machine. So the message is
+   * watched for paths, each is asked about, and one beyond the folder the reader
+   * chose puts its three answers here — before the Turn exists, which is the whole
+   * of what makes this moment different from a Tool Call's approval.
+   *
+   * It is answered here and nowhere else: this component owns the composer's text
+   * and the Send control, and `named-files` owns everything else about it.
+   */
+  const named = useNamedFiles(input);
 
   // The caret is placed after React has written the value and before the browser
   // has painted, so the reader picks up typing from the end of what was inserted
@@ -409,6 +424,14 @@ export function Chat({
             menu offering a Root the reader has stopped asking about. */}
         {menu.popup}
 
+        {/* The files this message is about, in the same place and for the same
+            reason, and never at the same time: while an `@` is being typed the
+            words after it are half a filename, and a row asking about one would be
+            a question about something the reader has not finished typing. The menu
+            closes the moment a name is chosen, and the row it left behind is then
+            the answer. */}
+        {!menu.open && named.panel}
+
         <textarea
           ref={field}
           value={input}
@@ -416,8 +439,10 @@ export function Chat({
             const value = event.target.value;
             // Typing puts a dismissed menu back, rather than leaving a reader
             // who pressed Escape unable to bring it up again without starting the
-            // mention over.
+            // mention over. The same goes for a refusal about a named file: a
+            // reader who has read it and carried on typing has read it.
             menu.typing();
+            named.typing();
             setInput(value);
             // Read from the caret rather than from the end of the text, because a
             // reader who has moved back up the message is editing there and a menu
@@ -475,11 +500,14 @@ export function Chat({
             while a read is waiting to be answered: a Turn started behind an open
             question would send a history in which the Model has asked for
             something and been told nothing, which reads as though the answer was
-            yes. */}
+            yes. Held down the same way while a file the reader named is waiting on
+            *their* answer, for the same reason and with the same consequence — and
+            "Deny" is on the row beside them, so refusing one file never refuses the
+            whole message. */}
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={inProgress || awaitingAnswer || input.trim().length === 0}
+          disabled={inProgress || awaitingAnswer || named.open > 0 || input.trim().length === 0}
           className="hm-btn hm-btn--primary order-3 sm:order-none sm:ml-auto"
         >
           Send

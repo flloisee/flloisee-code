@@ -197,3 +197,24 @@ export async function grantPath(asked: string): Promise<GrantAnswer> {
 export async function revokeGrant(recorded: string): Promise<GrantAnswer> {
   return readGrantAnswer(await post({ action: "revoke", path: recorded }));
 }
+
+/**
+ * Asks for one path to be allowed or refused, for the message being written.
+ *
+ * The composer's other two answers, beside "always allow". Both are recorded by
+ * the same route that writes a Grant and behind the same development guard,
+ * because both have to be: at send the server checks what it may read, and a
+ * decision that arrived in the request would be a caller naming the path to be
+ * read. Refused outside development, in the same words as a Grant, because one
+ * place decides whether a reader can widen the boundary at all.
+ *
+ * The path goes exactly as the reader wrote it. Nothing here resolves it, for the
+ * reason nothing above does: the browser has no Root and cannot, and the words the
+ * reader were shown when they answered are the words the send will look up.
+ */
+export async function decideNamedPath(
+  asked: string,
+  action: "allow" | "deny",
+): Promise<GrantAnswer> {
+  return readGrantAnswer(await post({ action, path: asked }));
+}
