@@ -78,7 +78,7 @@ export function ModelPicker({
   }
 
   return (
-    <div className="flex flex-col gap-2 border-b border-rule pb-3">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
         <label className="hm-label w-16 shrink-0" htmlFor="model-picker">
           Model

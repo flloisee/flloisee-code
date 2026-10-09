@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { Modal } from "@/components/modal";
 import { submitCredential, type KeyEntryAnswer } from "@/lib/endpoints/key-entry";
 import { findEndpoint } from "@/lib/endpoints/registry";
 
@@ -100,64 +101,53 @@ function KeyEntryDialog({
     if (outcome.status !== "refused") onStored();
   }
 
-  // Width and height, not size. `w-full` against a `max-w-md` means the dialog
-  // takes a narrow window rather than being cut off by it — it sits beside a
-  // terminal often enough that "it fits whatever width is left" is the layout
-  // rather than a refinement of it. The scroll bounds handle the other half: a
-  // window shorter than the dialog scrolls it, so the field and Save are both
-  // still reachable instead of sitting below the fold.
+  // The shell — scrim, panel, focus, Escape — is `Modal`'s, so that this
+  // dialog and the Settings one cannot drift apart on any of it.
   return (
-    <div className="fixed inset-0 z-[var(--z-modal)] flex items-end justify-center bg-scrim p-4 sm:items-center">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="key-entry-heading"
-        className="hm-panel hm-scroll max-h-full w-full max-w-md overflow-y-auto p-5 text-ink-2"
-      >
-        {/* The second and last place the display face appears: the dialog's own
-            heading, which is a heading and nothing else. */}
-        <h2 id="key-entry-heading" className="font-display text-md font-semibold text-ink">
-          Credential for {endpointName}
-        </h2>
+    <Modal labelledBy="key-entry-heading" onClose={onClose}>
+      {/* The second and last place the display face appears: the dialog's own
+          heading, which is a heading and nothing else. */}
+      <h2 id="key-entry-heading" className="font-display text-md font-semibold text-ink">
+        Credential for {endpointName}
+      </h2>
 
-        <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2">
-          {/* The variable name is a machine string and is set in the mono
-              register, so the reader can compare it character by character
-              against what the Endpoint picker reports. */}
-          <label className="hm-label" htmlFor="key-entry-credential">
-            Credential for {envVar}
-          </label>
+      <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2">
+        {/* The variable name is a machine string and is set in the mono
+            register, so the reader can compare it character by character
+            against what the Endpoint picker reports. */}
+        <label className="hm-label" htmlFor="key-entry-credential">
+          Credential for {envVar}
+        </label>
 
-          {/* `type="password"` so a Credential is not shown over a shoulder, and
-              `autoComplete="off"` so nothing pre-fills it from what the browser
-              has remembered. The value here is only ever what was typed.
-              `aria-invalid` carries the refused case alongside the message
-              below it, so the state is never colour alone. */}
-          <input
-            id="key-entry-credential"
-            type="password"
-            value={credential}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={sending}
-            aria-invalid={answer?.status === "refused" ? true : undefined}
-            onChange={(event) => setCredential(event.target.value)}
-            className="hm-field font-mono"
-          />
+        {/* `type="password"` so a Credential is not shown over a shoulder, and
+            `autoComplete="off"` so nothing pre-fills it from what the browser
+            has remembered. The value here is only ever what was typed.
+            `aria-invalid` carries the refused case alongside the message
+            below it, so the state is never colour alone. */}
+        <input
+          id="key-entry-credential"
+          type="password"
+          value={credential}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={sending}
+          aria-invalid={answer?.status === "refused" ? true : undefined}
+          onChange={(event) => setCredential(event.target.value)}
+          className="hm-field font-mono"
+        />
 
-          <KeyEntryMessage answer={answer} />
+        <KeyEntryMessage answer={answer} />
 
-          <div className="mt-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="hm-btn">
-              Close
-            </button>
-            <button type="submit" disabled={sending || credential.length === 0} className="hm-btn hm-btn--primary">
-              {sending ? "Storing..." : "Save"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="hm-btn">
+            Close
+          </button>
+          <button type="submit" disabled={sending || credential.length === 0} className="hm-btn hm-btn--primary">
+            {sending ? "Storing..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

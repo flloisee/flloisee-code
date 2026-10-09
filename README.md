@@ -202,6 +202,8 @@ app/
 components/
   workspace.tsx                       Saved Conversations beside the chat
   conversation-list.tsx               The list of Saved Conversations
+  settings.tsx                        Settings, as a dialog over the list
+  modal.tsx                           The shell both dialogs sit in
   endpoint-picker, model-picker, key-entry, chat surface, markdown, theme-toggle
 lib/
   conversations/                      Store, naming, the hook over both

@@ -4,11 +4,17 @@ import { useState } from "react";
 
 import { Chat } from "@/components/chat";
 import { ConversationList } from "@/components/conversation-list";
+import { Settings } from "@/components/settings";
 import {
   useConversations,
   type ConversationBackend,
 } from "@/lib/conversations/use-conversations";
-import { rememberModel, type ModelSelection } from "@/lib/models/selection";
+import { findEndpoint } from "@/lib/endpoints/registry";
+import {
+  rememberModel,
+  selectedModel,
+  type ModelSelection,
+} from "@/lib/models/selection";
 
 /**
  * The saved Conversations beside the chat.
@@ -19,8 +25,19 @@ import { rememberModel, type ModelSelection } from "@/lib/models/selection";
  *
  * The chat is rendered here rather than passed in as an element or a render
  * function: a function cannot cross the server/client boundary under Cache
- * Components, and holding the Endpoint here would give this component a second
- * reason to change when the pickers are what actually own it.
+ * Components.
+ *
+ * It is also where the Endpoint and Model are resolved, because both halves of
+ * the interface need them and neither owns them: the chat names them in every
+ * Request it makes, and the Settings dialog edits them. They were held here
+ * rather than in `Chat` because the chat below is remounted on every Conversation
+ * switch — that remount is what makes `useChat` adopt a saved Conversation's Turns
+ * — and state inside it would be thrown away each time. A reader who chose a
+ * Cloud Endpoint and then started a new Conversation would be handed Ollama back.
+ *
+ * The Model choice stays keyed by Endpoint, so switching back to an Endpoint
+ * restores the Model chosen there — that is `ModelSelection`'s own reason for
+ * existing, and this is the second place it is needed.
  */
 export function Workspace({
   endpointId,
@@ -39,17 +56,16 @@ export function Workspace({
   const { conversations, current, ready, available, startNew, open, save, rename, remove } =
     useConversations(backend);
 
-  // Which Endpoint and Model are in use is held here rather than in `Chat`,
-  // because the chat below is remounted on every Conversation switch — that
-  // remount is what makes `useChat` adopt a saved Conversation's Turns — and
-  // state inside it would be thrown away each time. A reader who chose a Cloud
-  // Endpoint and then started a new Conversation would be handed Ollama back.
-  //
-  // The Model choice stays keyed by Endpoint, so switching back to an Endpoint
-  // restores the Model chosen there — that is `ModelSelection`'s own reason for
-  // existing, and this is the second place it is needed.
   const [chosenEndpoint, setChosenEndpoint] = useState(endpointId);
   const [selection, setSelection] = useState<ModelSelection>({});
+
+  const endpoint = findEndpoint(chosenEndpoint);
+  const endpointName = endpoint?.name ?? chosenEndpoint;
+  const modelId = selectedModel(selection, chosenEndpoint, endpoint?.defaultModelId ?? "");
+
+  function chooseModel(identifier: string) {
+    setSelection((current) => rememberModel(current, chosenEndpoint, identifier));
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -62,6 +78,17 @@ export function Workspace({
         onNew={startNew}
         onRename={(id, title) => void rename(id, title)}
         onDelete={(id) => void remove(id)}
+        // Rendered here and handed down as the list's footer, because the dialog
+        // edits state this component holds. The list still decides where it sits.
+        footer={
+          <Settings
+            endpointId={chosenEndpoint}
+            endpointName={endpointName}
+            modelId={modelId}
+            onSelectEndpoint={setChosenEndpoint}
+            onSelectModel={chooseModel}
+          />
+        }
       />
 
       {/*
@@ -78,11 +105,8 @@ export function Workspace({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" key={current.id}>
         <Chat
           endpointId={chosenEndpoint}
-          onSelectEndpoint={setChosenEndpoint}
-          modelSelection={selection}
-          onSelectModel={(identifier) =>
-            setSelection((current) => rememberModel(current, chosenEndpoint, identifier))
-          }
+          endpointName={endpointName}
+          modelId={modelId}
           conversation={current}
           onSave={save}
           onStartNew={startNew}

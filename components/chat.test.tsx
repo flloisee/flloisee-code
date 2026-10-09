@@ -6,13 +6,11 @@ import type { Socket } from "node:net";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { UIMessage } from "ai";
-import { useState } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
 import { Chat, Turn } from "@/components/chat";
 import { findEndpoint } from "@/lib/endpoints/registry";
-import { rememberModel, type ModelSelection } from "@/lib/models/selection";
 
 /**
  * Drives the whole path the user drives, with nothing in the model layer stubbed:
@@ -181,25 +179,18 @@ beforeEach(() => {
 });
 
 /**
- * Holds the Endpoint and Model the way the Workspace does, and renders the chat.
+ * Renders the chat on the Endpoint and Model the Workspace would resolve for it.
  *
- * In the shipping app these live above the chat, because the chat is remounted
- * on every Conversation switch and state inside it would be lost each time.
- * Reproduced here so these tests exercise the same wiring rather than a version
- * of it that only exists in tests.
+ * In the shipping app both are resolved in `Workspace` and handed to the chat,
+ * because the Settings dialog edits them and the chat is remounted on every
+ * Conversation switch. Only the values the chat acts on are reproduced here.
  */
 function Harness() {
-  const [endpointId, setEndpointId] = useState("ollama");
-  const [selection, setSelection] = useState<ModelSelection>({});
-
   return (
     <Chat
-      endpointId={endpointId}
-      onSelectEndpoint={setEndpointId}
-      modelSelection={selection}
-      onSelectModel={(identifier) =>
-        setSelection((current) => rememberModel(current, endpointId, identifier))
-      }
+      endpointId="ollama"
+      endpointName="Ollama"
+      modelId="llama3.2"
       conversation={null}
       onSave={onSave}
     />

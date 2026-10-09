@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Workspace } from "@/components/workspace";
 import { LOCAL_ENDPOINTS } from "@/lib/endpoints/registry";
 
@@ -24,24 +23,16 @@ export default function Home() {
     // beside it. The list has its own width, so the reading measure is unchanged
     // and the page has not become a full-bleed transcript.
     <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col border-x border-rule font-sans">
-      {/* One row at every width. The wordmark is allowed to wrap rather than
-          push the row wider than the screen, which is what `min-w-0` buys — so
-          the two share a line at 320px without the wordmark being crushed into
-          a single word per line. */}
-      <header className="flex items-center justify-between gap-3 px-4 py-5 sm:px-6">
-        {/* The chosen Endpoint is named by the picker rather than here, since it
-            changes as soon as one is chosen. */}
+      {/* The wordmark alone: the Theme is a preference rather than part of any
+          Conversation, so it sits in the Settings at the foot of the list
+          instead of beside the title. */}
+      <header className="flex items-center gap-3 px-4 py-5 sm:px-6">
         {/* The wordmark is the one place the display face appears in the running
             app. Small and grounded — this is a utility that opens on a Local
             Endpoint, not a product page that needs a hero. */}
         <h1 className="min-w-0 font-display text-lg font-semibold tracking-tight text-ink">
           Multi-Endpoint Chat
         </h1>
-
-        {/* The Theme is app chrome rather than part of a Conversation, so it
-            sits above the Endpoint and Model pickers rather than beside any
-            one of them. */}
-        <ThemeToggle />
       </header>
 
       {/* useChat derives its id from Math.random(), which must not be evaluated

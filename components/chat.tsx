@@ -4,23 +4,23 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { useEffect, useState } from "react";
 
-import { EndpointPicker } from "@/components/endpoint-picker";
-import { ModelPicker } from "@/components/model-picker";
 import type { SavedConversation } from "@/lib/conversations/store";
-import { findEndpoint } from "@/lib/endpoints/registry";
-import { selectedModel, type ModelSelection } from "@/lib/models/selection";
 
 import { Markdown } from "./markdown";
 
 export type ChatProps = {
   /** The Endpoint in use. Held by the caller, so it outlives this component. */
   endpointId: string;
-  /** Called with the id of the Endpoint the reader chooses. */
-  onSelectEndpoint: (endpointId: string) => void;
-  /** The Model chosen in each Endpoint, by Endpoint id. Held by the caller too. */
-  modelSelection: ModelSelection;
-  /** Called with the Model chosen in the current Endpoint. */
-  onSelectModel: (modelId: string) => void;
+  /** How the Endpoint is named for the reader, used where the Conversation opens empty. */
+  endpointName: string;
+  /**
+   * The Model in use, already resolved against the Endpoint's default.
+   *
+   * Resolved by the caller rather than here: the Endpoint and Model are edited in
+   * Settings, above the chat, and this component is remounted on every
+   * Conversation switch.
+   */
+  modelId: string;
   /** The saved Conversation open here, or null when starting a new one. */
   conversation: SavedConversation | null;
   /** Called with the Turns on screen, so the Conversation can be saved. */
@@ -79,17 +79,13 @@ export function Turn({ message }: { message: UIMessage }) {
 
 export function Chat({
   endpointId,
-  onSelectEndpoint,
-  modelSelection,
-  onSelectModel,
+  endpointName,
+  modelId,
   conversation,
   onSave,
   onStartNew,
 }: ChatProps) {
   const [input, setInput] = useState("");
-
-  const endpoint = findEndpoint(endpointId);
-  const modelId = selectedModel(modelSelection, endpointId, endpoint?.defaultModelId ?? "");
 
   const { messages, sendMessage, status, stop, error, setMessages, regenerate } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -158,26 +154,13 @@ export function Chat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* The chosen Endpoint and Model stay on screen above the Conversation, so
-          it is always clear which one produced a Response. */}
-      <div className="px-4 pt-3 sm:px-6">
-        <EndpointPicker endpointId={endpointId} onSelect={onSelectEndpoint} />
-
-        <ModelPicker
-          endpointId={endpointId}
-          endpointName={endpoint?.name ?? endpointId}
-          modelId={modelId}
-          onSelect={onSelectModel}
-        />
-      </div>
-
       {/* `hm-scroll` reserves the scrollbar's gutter whether or not one is
           drawn, so the Turns do not slide sideways the moment the Theme
           changes — or the moment the first Turn makes this scrollable. */}
       <div className="hm-scroll flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
         {messages.length === 0 && (
           <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
-            Send a message to begin a Conversation with {endpoint?.name ?? endpointId}.
+            Send a message to begin a Conversation with {endpointName}.
           </p>
         )}
         {messages.map((message) => (

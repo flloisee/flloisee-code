@@ -6,7 +6,7 @@ import type { Socket } from "node:net";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
 import { POST as ENDPOINTS_POST } from "@/app/api/endpoints/route";
@@ -25,6 +25,14 @@ import { findEndpoint } from "@/lib/endpoints/registry";
  * testing is the round trip: a Turn sent in the interface has to be there after
  * a reload, under a name derived from the message that opened it.
  */
+
+// Generous for the whole file rather than per test, and not a licence to wait:
+// every wait below is awaited on what it is actually waiting for, so a failure
+// surfaces as a failed assertion rather than as a timeout landing here first.
+// The default 5s is simply too tight for a test that streams two Responses,
+// saves both, and drives a real server between them under a parallel suite —
+// which showed up as a different test failing on each run.
+vi.setConfig({ testTimeout: 20_000 });
 
 let stubURL = "";
 /** The answers the stub Endpoint will give, one per call. */
@@ -227,6 +235,18 @@ async function savedCount(n: number) {
   await waitFor(() => expect(names()).toHaveLength(n), { timeout: 5000 });
 }
 
+/** Opens Settings, which is where the Endpoint and Model are chosen. */
+function openSettings() {
+  fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+  return screen.getByRole("dialog");
+}
+
+/** Leaves Settings, so the reader is back at the Conversation rather than over it. */
+function closeSettings() {
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+}
+
 /** The Endpoint the picker is on, as the reader would read it. */
 function chosenEndpoint(): string {
   return (screen.getByLabelText("Endpoint") as HTMLSelectElement).value;
@@ -235,10 +255,10 @@ function chosenEndpoint(): string {
 /**
  * Waits for the picker to be showing `endpointId`.
  *
- * Opening a Conversation remounts the chat, and the picker asks the app's server
- * for the Registry again — so it is briefly empty while that is in flight. An
- * assertion that samples it at that moment reads "" and fails for a reason that
- * has nothing to do with what is under test.
+ * The pickers are mounted only while Settings is open, and each opening asks the
+ * app's server for the Registry again — so it is briefly empty while that is in
+ * flight. An assertion that samples it at that moment reads "" and fails for a
+ * reason that has nothing to do with what is under test.
  */
 async function pickerShows(endpointId: string) {
   await waitFor(() => expect(chosenEndpoint()).toBe(endpointId), { timeout: 5000 });
@@ -253,6 +273,7 @@ async function pickerShows(endpointId: string) {
  * visible.
  */
 async function chooseSecondEndpoint() {
+  openSettings();
   await waitFor(() => expect(chosenEndpoint()).toBe("ollama"));
 
   // LM Studio rather than a Cloud Endpoint: it sits beside Ollama in the
@@ -261,6 +282,7 @@ async function chooseSecondEndpoint() {
   fireEvent.change(screen.getByLabelText("Endpoint"), { target: { value: "lmstudio" } });
 
   await pickerShows("lmstudio");
+  closeSettings();
 }
 
 describe("the Endpoint and Model chosen survive a Conversation switch", () => {
@@ -283,6 +305,12 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // Endpoint the page opens on would send it somewhere the reader never chose.
     await waitFor(() => expect(askedFor).toHaveLength(2), { timeout: 5000 });
     expect(askedFor[1].endpointId).toBe(askedFor[0].endpointId);
+
+    // Waited for the Response too, not just the request: the stub consumes its
+    // next plan when the request reaches the server, which lands after the
+    // interface records it. Ending here would let that land in the next test
+    // and steal the first plan from its list.
+    await waitFor(() => expect(screen.getByText(/Two\./)).toBeTruthy(), { timeout: 5000 });
   });
 
   it("keeps them when reopening a saved Conversation", async () => {
@@ -308,11 +336,21 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // Opening the other Conversation remounts the chat; the choice must outlive it.
     fireEvent.click(screen.getByRole("button", { name: "First question" }));
     await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy());
+
+    // Reopened to check the choice, rather than trusted: it is the one thing this
+    // test exists to prove, and the picker is where it is kept.
+    openSettings();
     await pickerShows("lmstudio");
+    closeSettings();
 
     send("Fourth question");
     await waitFor(() => expect(askedFor).toHaveLength(4), { timeout: 5000 });
     expect(askedFor[3].endpointId).toBe("lmstudio");
+
+    // Waited for the Response for the same reason as the test above: the stub
+    // consumes the plan after the interface records the request, so ending on
+    // the request lets it steal from the next test.
+    await waitFor(() => expect(screen.getByText(/Four\./)).toBeTruthy(), { timeout: 5000 });
   });
 
   it("keeps the Model chosen for the Endpoint", async () => {
@@ -326,12 +364,14 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // Chosen from the discovered list rather than typed: with a live server
     // answering, the picker is a list, and choosing from it is the act that
     // has to survive starting a new Conversation.
+    openSettings();
     await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
       timeout: 5000,
     });
     fireEvent.change(screen.getByLabelText("Model"), {
       target: { value: "neohorse-1-4b-mlx" },
     });
+    closeSettings();
 
     fireEvent.click(screen.getAllByRole("button", { name: "New" })[0]);
     send("Second question");
@@ -340,6 +380,10 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // Conversation continues with the Model already chosen.
     await waitFor(() => expect(askedFor).toHaveLength(2), { timeout: 5000 });
     expect(askedFor[1].modelId).toBe("neohorse-1-4b-mlx");
+
+    // Waited for the Response so the stub has consumed its plan before the
+    // next test sets its own list — otherwise this request steals from it.
+    await waitFor(() => expect(screen.getByText(/Two\./)).toBeTruthy(), { timeout: 5000 });
   });
 
   it("keeps a typed Model identifier through a Conversation switch", async () => {
@@ -353,6 +397,7 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // An identifier discovery never listed is typed through the manual option,
     // which is a second act from picking — choosing the option first, then
     // typing into the field it opens.
+    openSettings();
     await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
       timeout: 5000,
     });
@@ -367,12 +412,17 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     expect(field.tagName).toBe("INPUT");
     fireEvent.change(field, { target: { value: "my-model" } });
     fireEvent.keyDown(field, { key: "Enter" });
+    closeSettings();
 
     fireEvent.click(screen.getAllByRole("button", { name: "New" })[0]);
     send("Second question");
 
     await waitFor(() => expect(askedFor).toHaveLength(2), { timeout: 5000 });
     expect(askedFor[1].modelId).toBe("my-model");
+
+    // Waited for the Response so the stub has consumed its plan before the
+    // next test sets its own list.
+    await waitFor(() => expect(screen.getByText(/Two\./)).toBeTruthy(), { timeout: 5000 });
   });
 
   it("still opens on the Endpoint the page chose", async () => {
@@ -383,6 +433,9 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
 
     await waitFor(() => expect(askedFor).toHaveLength(1), { timeout: 5000 });
     expect(askedFor[0].endpointId).toBe("ollama");
+
+    // Waited for the Response for the same cross-test reason as above.
+    await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
   });
 });
 
@@ -618,6 +671,7 @@ describe("chatting with a Model picked from discovery", () => {
     // the reader performs against a live server, listing and all. Awaited via
     // the status line, because while discovery is in flight the picker is its
     // manual field and holding that element would wait on options forever.
+    openSettings();
     await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
       timeout: 5000,
     });
@@ -626,6 +680,7 @@ describe("chatting with a Model picked from discovery", () => {
       "ling-3.0-tiny-abliterated-apex",
     );
     fireEvent.change(picker, { target: { value: "ling-3.0-tiny-abliterated-apex" } });
+    closeSettings();
 
     send("Say hello");
 

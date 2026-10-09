@@ -68,3 +68,6 @@ _tmp_*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright
+.playwright-cli/
