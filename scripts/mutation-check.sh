@@ -94,28 +94,40 @@ trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
 # Replaces one exact piece of text in one file, runs the tests that should
 # notice, and puts the file back.
 #
-# `$6` is optional: pass `everywhere` to replace every occurrence rather than the
+# `$6` is optional: any non-empty value replaces every occurrence rather than the
 # first, for a guard that one line of code enforces in more than one place. Mutating
 # one copy there would be caught by the tests for the others and read as evidence
-# that all of them are guarded.
+# that all of them are guarded. M25 is the one entry that asks for it. It was `g`,
+# carried over from when this was a regex flag — the comment above said
+# `everywhere`, the call sites said `g`, and nothing tested the difference, so the
+# two only agree by accident. Any value works now and neither is special.
 #
-# **Neither string may contain a `/`.** The substitution is `s/\Q$from\E/$to/`, so a
-# slash inside the quoted string closes the pattern early: the replacement silently
-# does not happen, and the entry below reports NOT APPLIED. That reads like the code
-# having drifted, so it cost an entry a whole guard once already — M36 aimed at
-# `already-granted` when the route said `already-decided`, and the guard it claimed
-# to check turned out to have no test at all. Aim such a string at an identifier
-# rather than at a path-like literal.
+# **Both strings are literal text, and that is why the substitution is `index`
+# rather than a regex.** This began as `s/\Q$from\E/$to/`, in which a slash inside
+# the quoted string closes the pattern early: the replacement silently does
+# nothing, and the entry reports NOT APPLIED, which reads like the code having
+# drifted. That cost M36 the guard it was claiming — aimed at `already-granted`
+# where the route said `already-decided` — and it left `locate.ts`'s refusal of a
+# name carrying a `/` with no entry at all, which is the single most important
+# line in that file: it is what says the browser may name a folder and nothing
+# else. There is no delimiter in an `index`, so no character is special and no
+# entry has to be aimed at an identifier to dodge one.
 run() {
   local label="$1" file="$2" from="$3" to="$4" tests="$5" scope="${6:-}"
   restore
 
-  if print -r -- "$from" | grep -q '/'; then
-    print "BROKEN      | $label | the text to replace contains a /, which ends the pattern"
-    return
-  fi
-
-  perl -0pi -e "s/\Q$from\E/$to/$scope" $file
+  # Through the environment rather than interpolated into the program text, so
+  # neither string can become syntax. `-0` slurps the file, which is what makes
+  # the first occurrence's offset the same before and after the edit.
+  MUTATE_FROM="$from" MUTATE_TO="$to" MUTATE_ALL="$scope" perl -0pi -e '
+    my ($from, $to, $all) = ($ENV{MUTATE_FROM}, $ENV{MUTATE_TO}, $ENV{MUTATE_ALL});
+    my $at = index($_, $from);
+    if ($all ne "") {
+      while ($at >= 0) { substr($_, $at, length($from)) = $to; $at = index($_, $from) }
+    } elsif ($at >= 0) {
+      substr($_, $at, length($from)) = $to;
+    }
+  ' $file
   if grep -qF "$from" $file; then
     print "NOT APPLIED | $label | the text to replace is not in $file as written"
     return
@@ -466,16 +478,27 @@ run "M42 offers a folder the boundary refused" $LOCATE \
 # arriving with the authority this feature deliberately never gave the browser:
 # `../../.ssh` is not a folder's name, and the search would go looking for a
 # folder called that.
-#
-# Aimed at the tail of `refusesAsName` rather than at the whole of it. The line
-# reads `name.includes("/") || name.includes("\\") || name.includes("\0")`, and
-# the first term cannot be written here at all: a `/` inside the quoted string
-# ends the pattern early, so an entry aimed at it reports NOT APPLIED and the
-# guard reads as covered while nothing tests it. The tail is the same guard with
-# the one separator that cannot be spelled here, and it is what refuses the
-# backslash and the null byte — both of which `locate.test.ts` asserts on.
-run "M43 searches for a name carrying a separator" $LOCATE \
+# The backslash and the null byte, which are the two of `refusesAsName`'s three
+# checks that no filesystem this runs on makes unreachable — and the reason the
+# line refuses both is that a name which would be a single component on *every*
+# platform is the only kind the search will take.
+run "M43 searches for a name carrying a backslash or a null byte" $LOCATE \
   'name.includes("\\") || name.includes("\0")' 'false' \
+  'lib/roots/locate.test.ts app/api/roots/route.test.ts'
+
+# The `/`, which is the one that matters and the one this script could not
+# previously say out loud: a `/` inside a `s/\Q…\E/` pattern ends it, so an entry
+# aiming here reported NOT APPLIED — a result that reads like the code had
+# drifted, while in fact nothing at all had been checked.
+#
+# Removing only the first term leaves the other two in place, so this is exactly
+# the case where a caller may send a name carrying `/` and be searched for it:
+# `../../.ssh` is not a folder's name, and a search for one walks the reader's
+# home folder on behalf of a path the caller was never authorised to send. That is
+# the whole of what this feature withholds from the browser, and it was the one
+# line here with no entry behind it.
+run "M44 searches for a name carrying a forward slash" $LOCATE \
+  'name.includes("/")' 'false' \
   'lib/roots/locate.test.ts app/api/roots/route.test.ts'
 
 restore
