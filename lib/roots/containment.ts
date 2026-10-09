@@ -26,8 +26,19 @@ import path from "node:path";
  */
 export type Refusal = "unusable" | "unreadable" | "outside";
 
+/**
+ * Which boundary let a path through, as the caller wrote it rather than as the
+ * disk has it.
+ *
+ * The two are different strings on any machine where the boundary was reached
+ * through a symlink — `/var` -> `/private/var` on macOS, which is every
+ * temporary directory in every test in this file — so a caller told only the
+ * resolved path cannot tell which of its boundaries answered. It matters
+ * because the answer is not the same: a path inside the Root is read without
+ * asking, and one under a Grant is reported as already allowed.
+ */
 export type Admission =
-  | { admitted: true; path: string }
+  | { admitted: true; path: string; boundary: string }
   | { admitted: false; reason: Refusal };
 
 const REFUSED = { admitted: false, reason: "outside" } as const;
@@ -78,7 +89,11 @@ function codeOf(error: unknown): string | undefined {
  *
  * The answer is the resolved path rather than the one asked about, because that
  * is the only form a later check can compare, and because a caller that has been
- * told where a file really is can show it to the reader.
+ * told where a file really is can show it to the reader. It carries the boundary
+ * that answered beside it, because with several boundaries the caller's next
+ * step is not the same whichever one let the path through, and it cannot tell
+ * them apart from the path alone. Boundaries are tried in the order given, so a
+ * list ordered Root-first names the Root wherever the two overlap.
  *
  * A boundary that cannot be resolved admits nothing at all. It has no extent, so
  * any comparison against it would either always fail or — far worse — always
@@ -98,7 +113,9 @@ export async function admitUnder(
     if ("refusal" in edge) continue;
 
     if (asked.path === edge.path || asked.path.startsWith(edge.path + path.sep)) {
-      return { admitted: true, path: asked.path };
+      // The boundary as written, not as resolved: it is the caller's own string
+      // that it will recognise, and a resolved one is not it.
+      return { admitted: true, path: asked.path, boundary };
     }
   }
 

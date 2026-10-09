@@ -77,6 +77,7 @@ describe("a path inside the boundary", () => {
     expect(await admitUnder([boundary], path.join(project, "link-to-readme"))).toEqual({
       admitted: true,
       path: readme,
+      boundary,
     });
   });
 
@@ -96,6 +97,51 @@ describe("a path inside the boundary", () => {
     expect(await admitUnder([boundary, granted], elsewhere)).toEqual({
       admitted: false,
       reason: "outside",
+    });
+  });
+
+  it("names which boundary answered, as the caller wrote it rather than as the disk has it", async () => {
+    const boundary = await resolvedBoundary();
+    const granted = path.join(project, "documents");
+    await aFile("documents", "notes.md");
+    await aFile("project", "README.md");
+
+    // A boundary as the caller wrote it and the same boundary as the disk has
+    // it are two different strings on this machine (`/var` -> `/private/var`),
+    // so which one answered is not something a caller can work out afterwards
+    // from the path it was handed back.
+    expect(await admitUnder([boundary, granted], path.join(granted, "notes.md"))).toMatchObject({
+      boundary: granted,
+    });
+    expect(await admitUnder([boundary, granted], path.join(boundary, "README.md"))).toMatchObject({
+      boundary,
+    });
+  });
+
+  it("names the boundary as the caller wrote it, even when the disk has it under another name", async () => {
+    const boundary = await resolvedBoundary();
+    // A boundary reached through a link of its own, which is what a reader who
+    // picked a folder on a machine where `/tmp` is `/private/tmp` has. The
+    // resolved path is not the string the caller holds, so reporting it back
+    // would hand the caller a name it cannot use.
+    const linked = path.join(project, "linked-project");
+    await symlink(boundary, linked);
+    const readme = await aFile("project", "README.md");
+
+    expect(await admitUnder([linked], readme)).toEqual({
+      admitted: true,
+      path: readme,
+      boundary: linked,
+    });
+  });
+
+  it("names the first boundary that answered, so where a Root and a Grant overlap the Root is the one named", async () => {
+    const boundary = await resolvedBoundary();
+    const granted = path.join(project, "project", "vendor");
+    await aFile("project", "vendor", "notes.md");
+
+    expect(await admitUnder([boundary, granted], path.join(granted, "notes.md"))).toMatchObject({
+      boundary,
     });
   });
 });
@@ -191,6 +237,20 @@ describe("a path that is not usable as one", () => {
     expect(await admitUnder([boundary], path.join(boundary, "never-existed"))).toEqual({
       admitted: false,
       reason: "unreadable",
+    });
+  });
+
+  it("is refused as unusable when it goes through a file, rather than as a path that is merely not there", async () => {
+    const boundary = await resolvedBoundary();
+    const readme = await aFile("project", "README.md");
+
+    // The disk answers ENOTDIR rather than ENOENT, and the reader's next step
+    // differs: something is at that path, and it is a file, so a path that reads
+    // "there is nothing there" sends them looking for a folder that was never
+    // going to be there either.
+    expect(await admitUnder([boundary], path.join(readme, "notes.md"))).toEqual({
+      admitted: false,
+      reason: "unusable",
     });
   });
 

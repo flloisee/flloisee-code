@@ -26,6 +26,7 @@ ROUTE=app/api/keys/route.ts
 ROOTS=lib/roots/reading-root.ts
 WALK=lib/roots/walk.ts
 CONTAINMENT=lib/roots/containment.ts
+READABLE=lib/roots/readable.ts
 ROOTS_ROUTE=app/api/roots/route.ts
 
 BACKUP_DIR=$(mktemp -d)
@@ -36,6 +37,7 @@ cp $ROUTE $BACKUP_DIR/route.ts
 cp $ROOTS $BACKUP_DIR/roots.ts
 cp $WALK $BACKUP_DIR/walk.ts
 cp $CONTAINMENT $BACKUP_DIR/containment.ts
+cp $READABLE $BACKUP_DIR/readable.ts
 cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
 
 restore() {
@@ -45,6 +47,7 @@ restore() {
   cp $BACKUP_DIR/roots.ts $ROOTS
   cp $BACKUP_DIR/walk.ts $WALK
   cp $BACKUP_DIR/containment.ts $CONTAINMENT
+  cp $BACKUP_DIR/readable.ts $READABLE
   cp $BACKUP_DIR/roots-route.ts $ROOTS_ROUTE
 }
 trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
@@ -143,12 +146,15 @@ run "M12 lists a folder outside the boundary" $WALK \
   'if (!admitted.admitted) return { ok: false, reason: admitted.reason };' 'if (false) return { ok: false, reason: admitted.reason };' \
   'lib/roots/walk.test.ts app/api/roots/route.test.ts'
 
-# Checks containment before resolving, so a symlink out of the walk is followed
-# and then found to be inside.
+# Resolves with `path.resolve` instead of `fs.realpath`, so a link out of the
+# Root is never followed and the comparison is made on the path as written — a
+# path inside the Root that points at `~/.ssh` comes back as itself, and is
+# inside. Distinct from M14, which keeps the resolution and loses only the
+# separator: this one is about *which* resolution happens.
 run "M13 admits a path that reaches out through a symlink" $CONTAINMENT \
-  'if (asked.path === edge.path || asked.path.startsWith(edge.path + path.sep)) {' \
-  'if (asked.path.startsWith(edge.path)) {' \
-  'lib/roots/containment.test.ts'
+  'return { path: await fs.realpath(candidate) };' \
+  'return { path: path.resolve(candidate) };' \
+  'lib/roots/containment.test.ts lib/roots/readable.test.ts'
 
 # Compares by string prefix, so a sibling folder is admitted.
 run "M14 admits a sibling whose name begins the boundary's" $CONTAINMENT \
@@ -165,15 +171,75 @@ run "M15 lists an .env entry" $WALK \
 # removes the rename from the shared writer and is therefore checked against both
 # writers at once: this one is about `reading-root.ts` asking for a temporary file
 # at all, which is a mistake it could make independently of what the writer does.
-# Makes the temporary file the Root file itself, so there is no atomic step left
-# and an interrupted write leaves half a Root behind. Distinct from M4, which
-# removes the rename from the shared writer and is therefore checked against both
-# writers at once: this one is about `reading-root.ts` asking for a temporary file
-# at all, which is a mistake it could make independently of what the writer does.
 run "M16 records a Root with no temporary file" $ROOTS \
   '    tempName,' \
   '    tempName: target,' \
   'lib/roots/reading-root.test.ts'
+
+# The containment guards themselves, one mutation each. The two above that cover
+# `containment.ts` are M13 (which resolution happens) and M14 (the separator);
+# these are the rest of the decisions on the way to an answer.
+
+# A path that is the boundary rather than under it: the Root has to be readable
+# as well as what is in it, since listing it is the first thing a Tool does.
+run "M17 refuses the boundary itself" $CONTAINMENT \
+  'asked.path === edge.path || asked.path.startsWith' \
+  'asked.path.startsWith' \
+  'lib/roots/containment.test.ts lib/roots/readable.test.ts'
+
+# A relative path is resolved by `admitUnder` against wherever the server was
+# started, which is inside the Root on one machine and outside on every other.
+run "M18 admits a relative path" $CONTAINMENT \
+  'if (!path.isAbsolute(candidate) || candidate.includes("\0")) return { refusal: "unusable" };' \
+  'if (false) return { refusal: "unusable" };' \
+  'lib/roots/containment.test.ts'
+
+# Everything that cannot be resolved is reported the same way, so a path that is
+# not there is answered as a null byte and the reader goes looking in the wrong
+# place.
+run "M19 calls a missing path unusable" $CONTAINMENT \
+  'return { refusal: codeOf(error) === "ENOENT" ? "unreadable" : "unusable" };' \
+  'return { refusal: "unreadable" };' \
+  'lib/roots/containment.test.ts lib/roots/readable.test.ts'
+
+# The Grants are dropped from the boundaries, so the Root is the only thing the
+# Model can read. This is the mutation the spec names: a Grant that changes
+# nothing is a Grant that was never a boundary.
+run "M20 reads the Root alone and no Grants" $READABLE \
+  '[root, ...reading.grants]' '[root]' \
+  'lib/roots/readable.test.ts'
+
+# Every read is reported as the Root's, so a read covered by a Grant is shown to
+# the reader as one they allowed when they did not — and a read the Root covers
+# is shown as an approval that needs no approval.
+run "M21 calls every read the Root's" $READABLE \
+  'under: answer.boundary === root ? "root" : "grant",' \
+  'under: "root",' \
+  'lib/roots/readable.test.ts'
+
+# `path.join` collapses `link/../src` before the disk sees it, which is a
+# different question from the one the disk answers: the link is followed first
+# and the `..` applied where it landed. The path then resolves inside the Root
+# and is admitted in place of one outside it.
+run 'M22 collapses a `..` the disk would have applied elsewhere' $READABLE \
+  'return root + path.sep + asked;' \
+  'return path.join(root, asked);' \
+  'lib/roots/readable.test.ts'
+
+# An absolute path is folded into the Root, so a path anywhere on the machine is
+# re-read as one the reader chose — and is refused as a typo rather than as what
+# it is.
+run "M23 folds an absolute path into the Root" $READABLE \
+  'if (path.isAbsolute(asked)) return asked;' \
+  'if (false) return asked;' \
+  'lib/roots/readable.test.ts'
+
+# A machine with no Root reads everything, which is the v1 behaviour this
+# feature must not have silently become.
+run "M24 reads without a Root" $READABLE \
+  'if (root === null) return OUTSIDE;' \
+  'if (false) return OUTSIDE;' \
+  'lib/roots/readable.test.ts'
 
 restore
 print ""
@@ -189,6 +255,7 @@ for pair in \
   "$BACKUP_DIR/roots.ts:$ROOTS" \
   "$BACKUP_DIR/walk.ts:$WALK" \
   "$BACKUP_DIR/containment.ts:$CONTAINMENT" \
+  "$BACKUP_DIR/readable.ts:$READABLE" \
   "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE"; do
   backup=${pair%%:*}
   original=${pair#*:}
