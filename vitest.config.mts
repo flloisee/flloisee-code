@@ -10,6 +10,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["app/**/*.test.ts", "lib/**/*.test.ts"],
+    include: [
+    "app/**/*.test.ts",
+    "components/**/*.test.{ts,tsx}",
+    "lib/**/*.test.ts",
+  ],
   },
 });
