@@ -25,6 +25,11 @@ export const maxDuration = 300;
  * Each schema therefore passes unknown keys through untouched: a part's `text`
  * is the message itself, and stripping it would empty the Conversation rather
  * than forward it.
+ *
+ * The one cast below is on validated data, not on `unknown`: it says that a
+ * checked message satisfies the SDK's part types, which is the SDK's business
+ * and not this route's to restate. What protects the public route is the
+ * `safeParse` above, and that runs before the cast is ever reached.
  */
 const messagePartSchema = z.looseObject({
   type: z.string().min(1),
@@ -76,10 +81,11 @@ export async function POST(request: Request) {
 
   // Every Request is proxied: the browser never contacts an Endpoint directly,
   // so no Credential is ever inlined into a request the browser constructs.
+  // `apiKey` is the SDK's own option name, not ours; ours is `credential`.
   const provider = createOpenAICompatible({
     name: endpoint.id,
     baseURL: resolution.baseURL,
-    ...(resolution.apiKey ? { apiKey: resolution.apiKey } : {}),
+    ...(resolution.credential ? { apiKey: resolution.credential } : {}),
   });
 
   // ai@7: streamText returns synchronously and must NOT be awaited.
@@ -90,7 +96,9 @@ export async function POST(request: Request) {
   // Endpoint for a Response nobody will ever read.
   const result = streamText({
     model: provider.chatModel(modelId),
-    messages: await convertToModelMessages(messages),
+    messages: await convertToModelMessages(
+      messages as Parameters<typeof convertToModelMessages>[0],
+    ),
     abortSignal: request.signal,
   });
 

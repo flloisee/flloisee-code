@@ -134,7 +134,7 @@ describe("asking an Endpoint which Models it has", () => {
       res.end(JSON.stringify({ data: [{ id: "gpt-4o-mini" }] }));
     };
 
-    await discoverModels({ baseURL: stubURL, apiKey: "sk-secret" });
+    await discoverModels({ baseURL: stubURL, credential: "sk-secret" });
     expect(seen.authorization).toBe("Bearer sk-secret");
 
     await discoverModels({ baseURL: stubURL });

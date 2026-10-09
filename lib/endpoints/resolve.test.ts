@@ -19,7 +19,7 @@ describe("resolving an Endpoint for a Request", () => {
     expect(resolved).toEqual({
       ok: true,
       baseURL: "http://localhost:11434/v1",
-      apiKey: undefined,
+      credential: undefined,
     });
   });
 
