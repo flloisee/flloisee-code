@@ -97,13 +97,16 @@ given beyond it; a Grant is an addition to that boundary and never a substitute 
 server resolves and checks every path it is given rather than trusting a caller's word for it.
 
 What that route can be reached to do is worth stating exactly, because it is narrower than it
-may sound and wider than "it only lists folders". In development, a caller can name **any path
-under the reader's own home directory** and have it checked against home. It cannot read that
-file's contents, cannot write anywhere but the one Root file, and cannot do either outside
-development. The alternative — opaque handles for entries the server offered, so a caller can
-only ever walk where it has already been — was considered and rejected as a second source of
-truth with a lifetime to invalidate across a dev-server reload, for a route that is
-development-only and can write nothing but a Root.
+may sound and wider than "it only lists folders". In development, a caller can name **the
+reader's own home directory or any path under it** — that is the walk's edge, and every path
+it is given, the way back up included, is put through it before the disk is touched — and be
+handed back the names, the kinds and the real paths of what is in the folder it named. That
+is deliberately more than it sounds like. The alternative — opaque handles for entries the
+server itself offered, so a caller can only ever walk where it has already been — was
+considered and rejected as a second source of truth with a lifetime to invalidate across a
+dev-server reload, for a route that is development-only and can write nothing but a Root.
+What it cannot do is read a file's contents, write anywhere but the one Root file, or do
+either outside development.
 
 Both write atomically and both are gitignored.
 
@@ -125,13 +128,19 @@ part, because most of the Endpoints in the Catalog would not take one.
 
 One consequence is worth stating plainly: **the security posture here depends on the app
 staying local and single-user.** Proxying means the server holds every user's Credential —
-fine for one person on their own machine, not for many. Hosting it would need both an
-authentication story and a replacement for the key-entry route. If multi-user hosting ever
-becomes the goal, that decision should be reopened rather than patched.
+fine for one person on their own machine, not for many. Reading files makes the same
+assumption load-bearing a second time, and for a different reason: the server now reaches
+off its own directory, so anything that can reach it can ask this machine for file contents.
+The walk is held to your home folder, every path is resolved through its links and checked
+rather than taken on a caller's word, and the route that names a Root refuses to run outside
+development — but those are checks on an unauthenticated route, not a boundary. They hold
+because there is one reader and the reader is the person running the server. Hosting it would
+need both an authentication story and a replacement for the key-entry route. If multi-user
+hosting ever becomes the goal, that decision should be reopened rather than patched.
 
 ## API
 
-Four Route Handlers, **all `POST` by design**. With Cache Components enabled, a `GET` handler
+Six Route Handlers, **all `POST` by design**. With Cache Components enabled, a `GET` handler
 follows the prerender model of a page — so a response varying by Endpoint would be frozen at
 build time and every Endpoint would report the same answer. A silent wrong result rather
 than a visible failure.
@@ -142,10 +151,36 @@ than a visible failure.
 | `POST /api/endpoints` | The Registry, with each Endpoint's configured state. |
 | `POST /api/models` | Model Discovery against one Endpoint. |
 | `POST /api/keys` | Key Entry. Development only. |
+| `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, and the reader's own answers. Development only. |
+| `POST /api/files` | Naming a file from the Root: the `@` menu, and a verdict on a path the reader wrote. |
 
 Chat and discovery are deliberately separate seams: discovery fails with a bad address or a
 missing Credential, generation fails for entirely different reasons, and collapsing them
-would make every failure look like a chat failure.
+would make every failure look like a chat failure. The same reasoning splits Root from
+files: choosing a folder is a write to this machine and refuses to run outside development,
+while asking what is in one writes nothing and therefore works in any build.
+
+## Reading files
+
+Give the Model a **Root** — one folder on your machine — and it can list it, read from it,
+and search it, using three **Tool**s. Anything outside that folder it does not get: it stops
+and puts an **Approval Request** to you, and you answer for that one read or for good. A
+**Grant** is the answer for good — remembered between visits, and listed in Settings with a
+button to stop allowing it. A path is taken as relative to the Root unless you write it out
+in full. Searching is a walk, and the walk skips `.env*`, `.git` and `node_modules` and
+honours your `.gitignore`; listing one folder shows you everything in it, which is how you
+find the folder worth searching.
+
+You can also name a file yourself. Typing `@` in the composer offers what is in the Root,
+matched against the path as well as the name, and pasting a path into a message asks about it
+**before** the message can be sent — you named it, the Model did not, and an approval
+appearing mid-Response would claim an agency that is not there. Either way the contents go
+into your message as a block of text naming the file, never as a file part, which is dull
+and works against every Endpoint here where a file part would not.
+
+The transcript shows every read — which Tool was called, the path it was given, and what came
+back — so a claim the answer makes about your files can be checked against them. Earlier
+Turns are left as they were; only the message you just sent gains the blocks.
 
 ## Interface
 
@@ -192,13 +227,14 @@ through the interface when you want them.
 | `pnpm dev` | Development server. |
 | `pnpm build` | Production build. |
 | `pnpm start` | Serve the production build. |
-| `pnpm test` | Vitest suite — 288 tests across 26 files. |
-| `pnpm typecheck` | `tsc --noEmit`. |
+| `pnpm test` | Vitest suite — 924 tests across 65 files. |
+| `pnpm typecheck` | `tsc --noEmit`. Needs Next's generated route types, so run `pnpm dev` or `pnpm build` first in a fresh checkout. |
 | `pnpm lint` | ESLint. |
 | `pnpm test:mutation` | Mutation check on the security-critical paths. |
 
 `.env.local` is gitignored. Credentials entered through the interface are written there and
-are never committed.
+are never committed. So is `.reading-root.json`, which records the folder the Model may read:
+it holds this machine's own directory layout, which is nothing to do with the app.
 
 ## Stack
 
@@ -214,7 +250,9 @@ Named here so their absence reads as a decision rather than a gap:
   reader's own browser, with no account and no copy anywhere else
 - Searching or filtering Saved Conversations; the list is ordered by recency and
   nothing else
-- Tool calling and function invocation; file and image attachment
+- Image attachment; a genuine image needs a Model that accepts one, and the same Turn has to
+  work against every Endpoint in the Catalog
+- Writing, moving or deleting a file — the Tools only read
 - Creating arbitrary Endpoints through the interface — the Catalog is source-controlled,
   and no caller-supplied base URL is accepted
 - Reasoning-token display and source citations
@@ -225,7 +263,7 @@ Named here so their absence reads as a decision rather than a gap:
 
 ```
 app/
-  api/{chat,endpoints,keys,models}/   Route Handlers, with tests alongside
+  api/{chat,endpoints,files,keys,models,roots}/   Route Handlers, with tests alongside
   page.tsx                            The Conversation, at the root
 components/
   workspace.tsx                       Saved Conversations beside the chat
@@ -233,6 +271,7 @@ components/
   settings.tsx                        Settings, as a dialog over the list
   modal.tsx                           The shell both dialogs sit in
   endpoint-picker, model-picker, key-entry, chat surface, markdown, theme-toggle
+  root-picker, file-menu, named-files, tool-call, approval-answer
 lib/
   conversations/                      Store, naming, the hook over both
   endpoints/                          Catalog, Registry, grouping, resolution, validation
@@ -240,13 +279,22 @@ lib/
   selection/                          The Endpoint and Model kept between visits
   theme.ts                            The Theme, and the Preference Store
   env.ts                              The only place a Credential is written
-  chat/failure.ts                     Turning provider errors into readable text
+  roots/                              The Root and its Grants, containment, the two walks
+  tools/                              The three Tools, the approval policy, what they refuse
+  chat/                               Failures as readable text; the files a Turn names
 scripts/                              Catalog refresh, mutation check
 ```
 
-`lib/endpoints/catalog.ts` is the highest-leverage file in the repo. It decides where
+The code for reading landed in `lib/roots/`, `lib/tools/` and `lib/chat/` rather than in one
+`lib/reading/`, which the spec guessed at: the boundary, the Tools over it and the place a
+Turn meets it are three different concerns with three different sets of tests.
+
+`lib/roots/readable.ts` holds `mayRead`, the one answer to "may the Model read this" that
+everything asks — the three Tools, the `@` menu, the pasted-path check and the recheck at
+send — so there is one set of answers rather than several to keep in step.
+`lib/endpoints/catalog.ts` is the highest-leverage file in the repo: it decides where
 Credentials are sent and is the most likely to need maintenance as model identifiers shift.
-Treat changes to it with the care of a dependency bump, not a copy edit.
+Treat changes to either with the care of a dependency bump, not a copy edit.
 
 ## Further reading
 

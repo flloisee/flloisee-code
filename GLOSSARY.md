@@ -108,6 +108,64 @@ The assistant's answer within a Turn, reaching the interface incrementally as th
 Endpoint produces it rather than all at once on completion.
 _Avoid_: reply, completion, output
 
+## Reading
+
+**Root**:
+A folder on the machine the Model may read, chosen by the reader. What makes a path inside
+one is resolution rather than spelling: it has to follow through any links to the Root itself
+or to something under it, so a sibling folder whose name begins the Root's is outside, and a
+path inside the Root that points back out through a link is outside too. One at a time, and
+held on the server rather than in the browser, because the browser resends every Turn and can
+post anything at all.
+_Avoid_: workspace (`components/workspace.tsx` is the interface's shell, and reusing the word
+for a folder would collide), sandbox, project, scope, mount, library
+
+**Tool**:
+A named operation the Model can ask the app to perform, with a declared input and a result —
+listing a folder, reading a file, searching a folder for text. There are none until a Root
+has been declared: a reader who has chosen no folder is sent no Tools, and a Turn behaves
+exactly as it did before. Deliberately not an agent mode, and the **Model** entry's refusal
+of the word *agent* holds — what the Model may do is three named operations over a folder
+the reader chose, and nothing else.
+_Avoid_: function, plugin, skill, command, capability
+
+**Tool Call**:
+One request from the Model to one Tool. A Turn is a sequence of them, and each is answered
+before the next is made, so a Turn that reads three files has three Tool Calls in it rather
+than one that does three things. The reader's own half of a Turn is an **Attachment**, which
+is a different thing and is not one of these.
+_Avoid_: function call, invocation, request (already the name for a proxied call to an
+Endpoint)
+
+**Tool Result**:
+What a Tool returns for one Tool Call — a listing, a file's lines, or matches. It stays in
+the Saved Conversation and is re-sent on every later Turn, so one can hold the contents of
+files off this machine, in the reader's own storage, and be worth naming before sharing it.
+_Avoid_: output, response (**Response** is the assistant's answer, and the two must not
+drift)
+
+**Grant**:
+A standing permission to read one path outside the Root, remembered between Turns. An
+addition to the boundary and never a substitute for it: a path is read if it is under the
+Root or under a Grant and by nothing else, and with no Root there are no boundaries at all
+rather than the Grants alone. Recorded in a file of the app's own, so widening what the
+Model may read takes an answer the server has to agree to.
+_Avoid_: approval (that is the one-off ask), permission, exception, allowlist entry
+
+**Approval Request**:
+The pause put in front of the reader when something outside the Root is about to be read.
+Answering one Turn's worth covers that read; answering always records a **Grant**. It is
+also raised by a path the reader named themselves, which is a different moment — the reader
+asked, the Model did not — and is not dressed up as the first.
+_Avoid_: confirmation, prompt
+
+**Attachment**:
+A file the reader names in a Turn, whose contents are sent with it. The contents are placed
+in the message as a delimited block of text naming the file, never as a file part, because
+most Endpoints in the Catalog would not take one and one code path across all of them is
+what this app is built on.
+_Avoid_: upload, file part
+
 ## Storage
 
 **Store**:

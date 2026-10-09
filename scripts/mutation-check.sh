@@ -34,6 +34,13 @@ TOOLS=lib/tools/file-tools.ts
 SCAN=lib/roots/scan.ts
 TEXT=lib/roots/text.ts
 
+# Naming a file in a Turn: which words in a message are paths, and the check that
+# every one of them is asked again at send. Between them these decide what enters
+# a Turn from the reader's side, which is the one door into the boundary that is
+# not the Model's.
+NAMED_PATH=lib/roots/named-path.ts
+ATTACHING=lib/chat/attach-named-files.ts
+
 # Answering an approval. Two decisions that only the reader makes: which history
 # entry counts as their answer, and whether "always allow" is recorded before the
 # answer is sent rather than after.
@@ -53,6 +60,8 @@ cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
 cp $TOOLS $BACKUP_DIR/tools.ts
 cp $SCAN $BACKUP_DIR/scan.ts
 cp $TEXT $BACKUP_DIR/text.ts
+cp $NAMED_PATH $BACKUP_DIR/named-path.ts
+cp $ATTACHING $BACKUP_DIR/attaching.ts
 cp $APPROVED $BACKUP_DIR/approved.ts
 cp $ANSWERING $BACKUP_DIR/answering.tsx
 
@@ -68,6 +77,8 @@ restore() {
   cp $BACKUP_DIR/tools.ts $TOOLS
   cp $BACKUP_DIR/scan.ts $SCAN
   cp $BACKUP_DIR/text.ts $TEXT
+  cp $BACKUP_DIR/named-path.ts $NAMED_PATH
+  cp $BACKUP_DIR/attaching.ts $ATTACHING
   cp $BACKUP_DIR/approved.ts $APPROVED
   cp $BACKUP_DIR/answering.tsx $ANSWERING
 }
@@ -381,6 +392,35 @@ run "M39 answers before the Grant is recorded" $ANSWERING \
   'if (outcome.status !== "granted") {' 'if (false) {' \
   'components/approval-answer.test.tsx'
 
+# The reader's own half of reading: naming a file in a Turn. Ticket 09 added neither
+# of these, and the reason it gave was that the script names its files at the top and
+# six worktrees editing that list at once is a merge hazard. The hazard has gone, so
+# they are here — the two guards are the only ones left standing between words the
+# reader typed and a file on this machine.
+
+# The recheck at send. The composer asked about each path before the Turn existed, and
+# a file can be deleted or the Root moved in between. `readNamedFile` still asks
+# `mayRead` for itself, so what removing this costs is the *stop*: the Turn is sent
+# with a block saying the file was left out instead of a 400 naming it, which is the
+# failure the code's own comment calls reading to the Model as a complete answer
+# about the wrong set of files.
+run "M40 the recheck at send admits every path" $ATTACHING \
+  'const allowed = await mayRead(reading, path, decision === "allowed");' \
+  'const allowed = { readable: true, path, under: "root" as const };' \
+  'app/api/chat/named-paths.test.ts'
+
+# The recogniser finds nothing, so no path is ever named in a Turn and the reader's
+# half of the feature goes quiet without a word: a message that attaches nothing is
+# exactly a message that attaches nothing, so only the tests can see this.
+#
+# Aimed at `asPath`'s first line rather than at the loop above it, because `run`
+# substitutes through `s/…/…/` and the loop's own text carries a regular expression
+# — a `/` inside `\Q…\E` closes the pattern early and the substitution never runs.
+# Every other entry here has the same constraint and is written to respect it.
+run "M41 the recogniser finds no paths" $NAMED_PATH \
+  '  if (token === "") return null;' '  if (token !== "") return null;' \
+  'lib/roots/named-path.test.ts app/api/chat/named-paths.test.ts components/named-paths.test.tsx'
+
 restore
 print ""
 
@@ -400,6 +440,8 @@ for pair in \
   "$BACKUP_DIR/tools.ts:$TOOLS" \
   "$BACKUP_DIR/scan.ts:$SCAN" \
   "$BACKUP_DIR/text.ts:$TEXT" \
+  "$BACKUP_DIR/named-path.ts:$NAMED_PATH" \
+  "$BACKUP_DIR/attaching.ts:$ATTACHING" \
   "$BACKUP_DIR/approved.ts:$APPROVED" \
   "$BACKUP_DIR/answering.tsx:$ANSWERING"; do
   backup=${pair%%:*}
