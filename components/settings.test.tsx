@@ -60,6 +60,17 @@ function openSettings(overrides: Partial<SettingsProps> = {}) {
   return { trigger, dialog: screen.getByRole("dialog"), props };
 }
 
+/**
+ * Moves to a tab by pressing it, the way a reader would.
+ *
+ * Through `getByRole("tab")` rather than by its position in a list, so a test
+ * that says "the Theme tab" keeps meaning the Theme tab if the order of the
+ * strip is ever argued about again.
+ */
+function openTab(dialog: HTMLElement, name: string) {
+  fireEvent.click(within(dialog).getByRole("tab", { name }));
+}
+
 describe("opening Settings", () => {
   it("is a button that has not yet opened anything", () => {
     renderSettings();
@@ -103,6 +114,9 @@ describe("the Endpoint and Model in it", () => {
 
     fireEvent.click(trigger);
 
+    // Both on the tab that opens, because the Model is a consequence of the
+    // Endpoint. Behind separate tabs, choosing one would be followed by hunting
+    // elsewhere for what it had produced.
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
     expect(within(dialog).getByLabelText("Model")).toBeTruthy();
@@ -137,6 +151,7 @@ describe("the Reading Root in it", () => {
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole("dialog");
+    openTab(dialog, "Folder");
 
     // The absence is stated. A blank row would leave a reader unable to tell a
     // Root of none from a Root that failed to load, and therefore unable to know
@@ -150,15 +165,17 @@ describe("the Reading Root in it", () => {
 describe("the preferences in it", () => {
   it("offers the Theme, named rather than left to the glyph", () => {
     const { dialog } = openSettings();
+    openTab(dialog, "Theme");
 
-    // A sun or a moon beside the word "Theme" says nothing about what it
-    // changes; the label beside the control says it changes the whole interface.
-    expect(within(dialog).getByText("Theme")).toBeTruthy();
+    // A sun or a moon says nothing about what it changes; the tab it sits under
+    // and the sentence beside it say it changes the whole interface.
+    expect(within(dialog).getByText(/usual colours, or the opposite/i)).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: /switch to dark theme/i })).toBeTruthy();
   });
 
   it("changes the Theme from inside the dialog", () => {
     const { dialog } = openSettings();
+    openTab(dialog, "Theme");
 
     fireEvent.click(within(dialog).getByRole("button", { name: /switch to dark theme/i }));
 
@@ -173,6 +190,7 @@ describe("deleting every Conversation from it", () => {
   /** Opens Settings with Conversations saved and presses Delete all. */
   function askToDeleteAll(savedCount: number) {
     const { dialog, props } = openSettings({ savedCount });
+    openTab(dialog, "Saved");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete all" }));
 
@@ -181,6 +199,7 @@ describe("deleting every Conversation from it", () => {
 
   it("offers it once there is something to lose, and says how much", () => {
     const { dialog } = openSettings({ savedCount: 12 });
+    openTab(dialog, "Saved");
 
     // The count is where the decision gets made, not only behind the
     // confirmation: a reader who can see there are twelve of them may decide
@@ -194,6 +213,7 @@ describe("deleting every Conversation from it", () => {
 
   it("does not offer it when there is nothing to delete", () => {
     const { dialog } = openSettings({ savedCount: 0 });
+    openTab(dialog, "Saved");
 
     // Disabled rather than absent: a control that appeared and vanished with the
     // list would shift the dialog under the reader, and its absence would leave
@@ -226,7 +246,10 @@ describe("deleting every Conversation from it", () => {
     // would be a question about a page the reader can no longer see, and two
     // scrims would mean one Escape dismissed both.
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
-    expect(within(dialog).queryByLabelText("Endpoint")).toBeNull();
+    // The whole of Settings is gone, strip included — not merely its panels. A
+    // strip left behind under a question would still be offering tabs that go
+    // nowhere.
+    expect(within(dialog).queryByRole("tab")).toBeNull();
   });
 
   it("deletes nothing when the reader cancels", () => {
@@ -237,8 +260,11 @@ describe("deleting every Conversation from it", () => {
     expect(props.onDeleteAllChats).not.toHaveBeenCalled();
 
     // Back where they were, still in Settings, rather than in a dialog about
-    // deleting something that was not deleted.
-    expect(within(screen.getByRole("dialog")).getByLabelText("Endpoint")).toBeTruthy();
+    // deleting something that was not deleted. And on the tab they left from,
+    // because the question replaced the dialog and the tab choice survived it.
+    const back = within(screen.getByRole("dialog"));
+    expect(back.getByRole("tab", { name: "Saved" }).getAttribute("aria-selected")).toBe("true");
+    expect(back.getByText("12 saved.")).toBeTruthy();
   });
 
   it("deletes nothing when the reader presses Escape", () => {
@@ -257,6 +283,17 @@ describe("deleting every Conversation from it", () => {
     // tabs into the dialog meets before they have read the heading.
     const buttons = within(dialog).getAllByRole("button");
     expect(buttons.map((button) => button.textContent)).toEqual(["Cancel", "Delete all"]);
+  });
+
+  it("asks in the narrow modal, however wide the settings behind it is", () => {
+    const { dialog } = askToDeleteAll(12);
+
+    // Settings takes the wide modal for the Model Fit table; a question does not.
+    // The same ceiling for both would put a three-line confirmation across half
+    // the window, which reads as emphasis on a decision that needs none — and
+    // the question is the one dialog in the app where a bigger target is worse.
+    expect(dialog.className).toContain("max-w-md");
+    expect(dialog.className).not.toContain("max-w-2xl");
   });
 
   it("takes focus on the panel, so nothing is a keystroke from being deleted", async () => {
@@ -279,14 +316,182 @@ describe("deleting every Conversation from it", () => {
     // double-fire is the shape of accident this whole dialog exists to prevent.
     expect(props.onDeleteAllChats).toHaveBeenCalledTimes(1);
 
-    // Back in Settings, which is where the count now reads none — the feedback
-    // is the dialog the reader is already in, not a second one announcing it.
+    // Back in Settings, which is where the count now reads none — the feedback is
+    // the dialog the reader is already in, not a second one announcing it. Still
+    // on the tab they were on, so the answer to "did that work?" is the thing
+    // they were looking at when they asked it.
+    //
+    // The count itself is not asserted: it is a prop, and a stub that does not
+    // change it will say twelve forever. What it does when the list really does
+    // empty is `workspace`'s business and covered where the list is.
     expect(screen.queryByRole("heading", { name: /delete every conversation\?/i })).toBeNull();
-    expect(within(screen.getByRole("dialog")).getByLabelText("Endpoint")).toBeTruthy();
+    const back = within(screen.getByRole("dialog"));
+    expect(back.getByRole("tab", { name: "Saved" }).getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("the sections it is divided into", () => {
+  it("opens on the Endpoint, and the tab says which one that is", () => {
+    const { dialog } = openSettings();
+
+    // Read through the tablist rather than off a tab's appearance: this is what
+    // a reader arriving at Settings is told is showing, before they press
+    // anything.
+    const strip = within(dialog).getByRole("tablist");
+    expect(strip.getAttribute("aria-labelledby")).toBe("settings-heading");
+    expect(within(strip).getByRole("tab", { name: "Endpoint & Model" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
+  });
+
+  it("calls its tabs the words GLOSSARY.md settled on", () => {
+    const { dialog } = openSettings();
+
+    // The whole strip in one assertion, because the point is the set rather than
+    // any one tab. Two of these names were chosen over plainer ones the tab
+    // could have worn, so the choice is worth a test rather than a reviewer's
+    // memory: `GLOSSARY.md` lists *provider* under Endpoint and *recommendation*
+    // under Fit as words not to use, because an Endpoint is not a vendor (Ollama
+    // and LM Studio are the reader's own machine) and a Fit is not a judgement
+    // about quality — the panel's own note says the ordering is popularity or
+    // parameter count and not one.
+    expect(
+      within(dialog)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([
+      "Endpoint & Model",
+      "Folder",
+      "Model Fit",
+      "Theme",
+      "Saved",
+    ]);
+  });
+
+  it("holds one thing at a time, so what is on screen is what was chosen", () => {
+    const { dialog } = openSettings();
+
+    // The Theme is not in the document while the Endpoint tab is showing. Both
+    // mounted at once would be the column this replaced, only with tabs drawn
+    // over the top of it.
+    expect(within(dialog).queryByRole("button", { name: /switch to dark theme/i })).toBeNull();
+
+    openTab(dialog, "Theme");
+
+    expect(within(dialog).getByRole("button", { name: /switch to dark theme/i })).toBeTruthy();
+    expect(within(dialog).queryByLabelText("Endpoint")).toBeNull();
+  });
+
+  it("has never asked a section the reader did not open", () => {
+    const { dialog } = openSettings();
+
+    // The Model Fit tab asks the app's server what this machine is, and its
+    // first answer comes from Hugging Face. A reader who came to change the
+    // Theme must not have caused that by opening Settings — which is only true
+    // because a panel nobody has visited has never mounted.
+    expect(within(dialog).queryByText(/reading this machine/i)).toBeNull();
+    expect(within(dialog).queryByRole("tablist")).toBeTruthy();
+  });
+
+  it("puts the Endpoint and the Model on one tab, because one decides the other", () => {
+    const { dialog } = openSettings();
+
+    // Both controls are reachable from the tab that opens. Split across two,
+    // choosing an Endpoint would leave the reader hunting a second tab for the
+    // Models it had just decided on.
+    expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Model")).toBeTruthy();
+    // And there is no tab named after either of them, so neither is a second
+    // thing in this dialog with a name the reader has to keep apart.
+    expect(within(dialog).queryByRole("tab", { name: "Model" })).toBeNull();
+    expect(within(dialog).queryByRole("tab", { name: "Endpoint" })).toBeNull();
+  });
+
+  it("keeps Close out of the strip, on every tab", () => {
+    const { dialog } = openSettings();
+
+    // Closing is not a place the reader goes. It sits below the strip whatever
+    // is showing, so it is always in the same place and never a tab with
+    // nothing behind it.
+    expect(within(dialog).queryByRole("tab", { name: /close/i })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: /close/i })).toBeTruthy();
+
+    openTab(dialog, "Saved");
+
+    expect(within(dialog).getByRole("button", { name: /close/i })).toBeTruthy();
+  });
+
+  it("is walked with the arrows, which move focus without opening anything", () => {
+    const { dialog } = openSettings();
+
+    const strip = within(dialog);
+    const endpoint = strip.getByRole("tab", { name: "Endpoint & Model" });
+    endpoint.focus();
+
+    // Movement, not choice. Opening Hardware mounts it, which asks Hugging
+    // Face, and a keypress meant to move along the strip should not send a
+    // request to a third party.
+    fireEvent.keyDown(endpoint, { key: "ArrowRight" });
+
+    // Focus moved. Nothing did.
+    expect(document.activeElement).toBe(strip.getByRole("tab", { name: "Folder" }));
+    expect(within(dialog).queryByText(/reading this machine/i)).toBeNull();
+    expect(strip.getByRole("tab", { name: "Endpoint & Model" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+  });
+
+  it("wraps at both ends, so the strip cannot be fallen off", () => {
+    const { dialog } = openSettings();
+    const strip = within(dialog);
+
+    strip.getByRole("tab", { name: "Saved" }).focus();
+    fireEvent.keyDown(strip.getByRole("tab", { name: "Saved" }), { key: "ArrowRight" });
+
+    expect(document.activeElement).toBe(strip.getByRole("tab", { name: "Endpoint & Model" }));
+  });
+
+  it("puts one tab in the tab order, so tabbing through passes by the strip", () => {
+    const { dialog } = openSettings();
+    const strip = within(dialog);
+
+    // Five focusable tabs would make the reader tab through four controls they
+    // did not ask for on the way to the panel they came for.
+    const inOrder = strip
+      .getAllByRole("tab")
+      .filter((tab) => tab.getAttribute("tabindex") === "0");
+
+    expect(inOrder.map((tab) => tab.textContent)).toEqual(["Endpoint & Model"]);
+  });
+
+  it("says which tab a panel belongs to, so a reader knows what they are in", () => {
+    const { dialog } = openSettings();
+    openTab(dialog, "Folder");
+
+    // The panel is named for its tab rather than carrying a heading of its own,
+    // which is the tab's name spoken aloud on entering it.
+    const panel = within(dialog).getByRole("tabpanel");
+    const tab = within(dialog).getByRole("tab", { name: "Folder" });
+
+    expect(panel.getAttribute("aria-labelledby")).toBe(tab.getAttribute("id"));
+    expect(tab.getAttribute("aria-controls")).toBe(panel.getAttribute("id"));
   });
 });
 
 describe("closing Settings", () => {
+  it("takes the wide modal, so the Hardware rows are not truncated", () => {
+    const { dialog } = openSettings();
+    openTab(dialog, "Model Fit");
+
+    // Read off the class rather than asserted as a width: jsdom has no layout, so
+    // there is nothing to measure, and the name of the ceiling is the thing that
+    // can be dropped. Wide rather than narrow is not cosmetic here — the
+    // repository name is the one column in that table a reader cannot do without,
+    // and it is what `truncate` takes first.
+    expect(dialog.className).toContain("max-w-2xl");
+  });
+
   it("closes on Close", () => {
     const { dialog } = openSettings();
 
@@ -309,8 +514,10 @@ describe("closing Settings", () => {
   it("closes when the scrim is pressed, but not when the dialog itself is", () => {
     const { dialog } = openSettings();
 
-    // Pressing anything inside — the Theme control included — must not dismiss
-    // the dialog the reader is in the middle of using.
+    // Pressing anything inside must not dismiss the dialog the reader is in the
+    // middle of using — a tab among them, since moving between them is now
+    // something that happens repeatedly while the dialog stays open.
+    openTab(dialog, "Theme");
     fireEvent.click(within(dialog).getByRole("button", { name: /switch to dark theme/i }));
     expect(screen.queryByRole("dialog")).toBeTruthy();
 

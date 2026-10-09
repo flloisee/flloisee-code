@@ -8,6 +8,7 @@ import { HardwareSection } from "@/components/hardware-section";
 import { Modal } from "@/components/modal";
 import { ModelPicker } from "@/components/model-picker";
 import { RootPicker } from "@/components/root-picker";
+import { Tabs, type TabSpec } from "@/components/tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
@@ -31,6 +32,27 @@ import { ThemeToggle } from "@/components/theme-toggle";
  * point: a Model loaded a moment ago, and a Credential stored a moment ago, are
  * both things this way show without a reload.
  *
+ * **What it holds is behind tabs**, which is a change from the column it was.
+ * The reasoning that put each control at a particular height in that column is
+ * real — the Reading Root is per-machine, the Theme is a preference set once,
+ * deleting everything belongs last — but it is reasoning about *order*, and order
+ * was never the thing a reader came for. Six controls in a column means
+ * scrolling past five to reach the sixth, and it turns their relative heights
+ * into a promise: that something below matters less than something above it.
+ * Tabs drop that promise. Each of those things is offered in one line at the
+ * same weight, and the one the reader came for is one press away.
+ *
+ * What the tabs are NOT is a way of separating the Endpoint from the Model.
+ * Those two stay on one tab because one is a consequence of the other: choosing
+ * an Endpoint is what decides which Models are on offer, so splitting them would
+ * mean making a choice and then hunting elsewhere to see what it had produced.
+ * They are a single decision wearing two controls.
+ *
+ * Tabs also mean a tab nobody opens has never mounted, and so has never asked
+ * the app's server — or, on the Model Fit tab, Hugging Face — anything. That is
+ * what lets the Theme be a tab rather than something scrolled to: choosing it
+ * costs no request at all.
+ *
  * The Reading Root is here too, and nowhere else. It is a property of the
  * machine rather than of the app's configuration — it names a folder on this
  * developer's disk — so it does not belong beside the Conversation, and putting
@@ -40,10 +62,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
  * Deleting every Conversation is here for the same reason the list's per-row
  * Delete is not enough: the rows carry their own control, but there is no
  * "forget the lot" among them, and a reader clearing out work they have finished
- * with should not have to press Delete once per row to say so. It is at the foot
- * rather than beside the New, because a control that destroys everything is not
- * a navigation, and one keystroke from the control that creates things it is
- * exactly the wrong place for it.
+ * with should not have to press Delete once per row to say so. It sits behind the
+ * tab named for it rather than at the foot of a column, because a control that
+ * destroys everything should not be one keystroke from the control that creates
+ * things — and because a reader who opens that tab is one whose question it
+ * already answers.
  */
 
 /** What the dialog edits, passed in from the one place that holds it. */
@@ -111,11 +134,13 @@ export function Settings({
  * The heading is in the display face, the same as the Credential dialog's and for
  * the same reason: a dialog that opens with no heading of its own reads as a
  * panel of controls that happened to appear, rather than as a place the reader
- * chose to go.
+ * chose to go. It is also what names the tab strip below it, so a screen reader
+ * announces "Settings" and then the tabs of it rather than a strip that arrived
+ * nameless.
  *
- * Endpoint and Model come before the Theme because they are the part of this
- * dialog a reader is here for: the Theme is a preference they set once, while
- * these decide what a Conversation is even held with.
+ * Endpoint opens first because it is the tab a reader is here for: it decides
+ * what a Conversation is even held with, and the other four are preferences, or
+ * are about the machine, or are about work already done.
  */
 function SettingsDialog({
   endpointId,
@@ -129,7 +154,14 @@ function SettingsDialog({
 }: SettingsProps & { onClose: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showing, setShowing] = useState(0);
 
+  // The tab is chosen above rather than after the question below, because the
+  // question replaces this dialog's body and a hook declared under that `if`
+  // would be mounted on one render and not the next. Here it is also useful: a
+  // reader who opens the Saved tab, presses Delete all, and then backs out of
+  // the question comes back to the tab they left rather than to the first one.
+  //
   // The confirmation *replaces* this dialog rather than opening on top of it.
   // Two `Modal`s at once would stack two scrims and bind Escape twice — so one
   // Escape would dismiss both, taking the confirmation away at the moment it was
@@ -160,95 +192,147 @@ function SettingsDialog({
   }
 
   return (
-    <Modal labelledBy="settings-heading" onClose={onClose}>
+    // Wide, and the only dialog here that asks to be. The Model Fit tab is a
+    // table — a figure, a repository name, a size and a quantisation across —
+    // and at the narrow default the names are what gets truncated, which is the
+    // one column a reader cannot do without. The narrower panels here look roomy
+    // at this width, which is the cost of one ceiling for five panels and a far
+    // smaller one than four separate dialogs.
+    <Modal labelledBy="settings-heading" onClose={onClose} width="wide">
       <h2 id="settings-heading" className="font-display text-md font-semibold text-ink">
         Settings
       </h2>
 
-      <div className="mt-4 flex flex-col gap-4">
-        <EndpointPicker endpointId={endpointId} onSelect={onSelectEndpoint} />
+      <Tabs
+        className="mt-4"
+        tabs={sections()}
+        selected={showing}
+        onSelect={setShowing}
+        // The dialog's own heading, so the strip is announced as part of
+        // Settings rather than as a nameless row of buttons inside it.
+        labelledBy="settings-heading"
+      />
 
-        <ModelPicker
-          endpointId={endpointId}
-          endpointName={endpointName}
-          modelId={modelId}
-          onSelect={onSelectModel}
-        />
-
-        {/* The Reading Root, below the Model rather than beside the Endpoint:
-            it is not which backend the app talks to but what that backend is
-            allowed to see, and it is per-machine rather than per-Endpoint. Its
-            absence is stated rather than shown as an empty control, since a
-            reader who cannot tell a Root of none from a Root that failed to load
-            has no way to know whether the Model can read anything. */}
-        <div className="mt-5 border-t border-rule pt-4">
-          <RootPicker />
-        </div>
-
-        {/* What this machine is, and which of the Models an Endpoint offers would
-            run on it. Below the Root because it is per-machine too — the same
-            machine answers the same way whichever Endpoint is chosen — and below
-            Endpoint and Model because those are what a reader opens this dialog
-            to change, where this is what they open it to check.
-
-            Takes the Endpoint id rather than reading it, so the one place that
-            holds the choice stays the one place that knows it. */}
-        {/* What this machine is, and which Models from Hugging Face would run
-            well on it. Below the Root because it is per-machine — the same
-            machine answers the same way whichever Endpoint is chosen — and below
-            Endpoint and Model because those are what a reader opens this dialog
-            to change, where this is what they open it to check.
-
-            Takes no Endpoint. A reader asking what they could run offline is not
-            yet running anything, and the answer must not shift with whichever
-            Endpoint the composer happens to be pointed at. */}
-        <div className="mt-5 border-t border-rule pt-4">
-          <HardwareSection />
-        </div>
-      </div>
-
-      {/* The Theme, and the one preference here that is not configuration. Labelled
-          rather than left to the glyph, because a sun or a moon beside the word
-          Theme says nothing about what it changes. */}
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-rule pt-4">
-        <span className="text-sm text-ink-2">Theme</span>
-        <ThemeToggle />
-      </div>
-
-      {/* Below the Theme and last in the dialog, behind a rule of its own. Every
-          control above it changes what the app does next; this one throws away
-          what has already been done, and the reader should have to scroll past
-          four things that are not that to reach it. */}
-      <div className="mt-5 flex items-start justify-between gap-3 border-t border-rule pt-4">
-        <div className="min-w-0">
-          <span className="text-sm text-ink-2">Saved Conversations</span>
-          {/* What is at stake, said where the decision is made rather than only in
-              the confirmation: a reader who can see there are forty of them may
-              not want this at all, and a reader who can see there are none
-              should not be offered the button at all. */}
-          <p className="mt-0.5 text-xs text-muted">{whatIsSaved(savedCount)}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          // Disabled rather than hidden when there is nothing stored. A control
-          // that appeared and vanished with the list would move the dialog's
-          // layout around underneath the reader; a button that is simply not
-          // available says there is nothing here to delete, which is the fact.
-          disabled={savedCount === 0}
-          className="hm-btn shrink-0 text-error"
-        >
-          Delete all
-        </button>
-      </div>
-
-      <div className="mt-5 flex justify-end">
+      {/* Below the strip and behind a rule, on every tab. Closing is not a
+          section — there is nothing behind it — so it stays put whatever is
+          showing, rather than becoming a sixth tab a reader could move to and
+          find empty. */}
+      <div className="mt-5 flex justify-end border-t border-rule pt-4">
         <button type="button" onClick={onClose} className="hm-btn">
           Close
         </button>
       </div>
     </Modal>
   );
+
+  /**
+   * What the dialog holds, as one tab each.
+   *
+   * Built by a function rather than written as a constant because three of the
+   * five carry props and one carries a count: a module-level table would be
+   * either frozen at the wrong values or hold a mutable module singleton, and
+   * both are worse than re-creating five objects on a render that only happens
+   * while the dialog is open.
+   *
+   * Order is the order a reader meets the dialog in, which is not the order they
+   * are used in: Endpoint first because it decides what everything else is
+   * about, then the machine's own answers, then the preference, then the work
+   * already done.
+   */
+  function sections(): readonly TabSpec[] {
+    return [
+      {
+        // One tab rather than two, because the Model is a consequence of the
+        // Endpoint: choosing one is what decides which of the other is on offer,
+        // and a reader who changed Endpoint and had to go looking for the answer
+        // would be reading a stale Model against a new choice.
+        //
+        // Named for both rather than for the first alone, which keeps the tab
+        // from being a second thing called "Endpoint" in a dialog that already
+        // has a control by that name inside this very panel. It is also the more
+        // honest name: this is where the pair is chosen, not the first half of it.
+        label: "Endpoint & Model",
+        panel: (
+          <div className="flex flex-col gap-4">
+            <EndpointPicker endpointId={endpointId} onSelect={onSelectEndpoint} />
+            <ModelPicker
+              endpointId={endpointId}
+              endpointName={endpointName}
+              modelId={modelId}
+              onSelect={onSelectModel}
+            />
+          </div>
+        ),
+      },
+      {
+        // What the Model is allowed to read. A tab of its own rather than a
+        // field under the Endpoint because it is the one control here that is
+        // about this machine rather than about the app's configuration — it
+        // names a folder on this developer's disk, and it is what decides
+        // whether the Model can read anything at all.
+        label: "Folder",
+        panel: <RootPicker />,
+      },
+      {
+        // "Fit" rather than "Hardware", which was the name here until this tab
+        // existed and labelled the machine rather than what the panel does. Fit is
+        // the glossary's word for this — which Models would run well here — and it
+        // is deliberately not "recommendation": a recommendation is a judgement
+        // about quality, and the note under the list exists to say the ordering is
+        // popularity or parameter count and not one. What this offers is a fit.
+        label: "Model Fit",
+        // Takes no Endpoint, deliberately: a reader asking what they could run
+        // offline is not yet running anything, and the answer must not shift
+        // with whichever Endpoint the composer is pointed at.
+        panel: <HardwareSection />,
+      },
+      {
+        // The one preference here that is not configuration. Labelled in words
+        // rather than left to the glyph, because a sun or a moon beside the word
+        // Theme says nothing about what it changes.
+        label: "Theme",
+        panel: (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-ink-2">
+              Whether this machine is in its usual colours, or the opposite.
+            </span>
+            <ThemeToggle />
+          </div>
+        ),
+      },
+      {
+        label: "Saved",
+        // Last, and behind its own tab. Every other thing here changes what the
+        // app does next; this one throws away what has already been done, so it
+        // should not be a keystroke from anything that creates.
+        panel: (
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <span className="text-sm text-ink-2">Saved Conversations</span>
+              {/* What is at stake, said where the decision is made rather than
+                  only in the confirmation: a reader who can see there are forty
+                  of them may not want this at all, and a reader who can see
+                  there are none should not be offered the button at all. */}
+              <p className="mt-0.5 text-xs text-muted">{whatIsSaved(savedCount)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              // Disabled rather than hidden when there is nothing stored. A
+              // control that appeared and vanished with the list would move the
+              // panel around underneath the reader; a button that is simply not
+              // available says there is nothing here to delete, which is the
+              // fact.
+              disabled={savedCount === 0}
+              className="hm-btn shrink-0 text-error"
+            >
+              Delete all
+            </button>
+          </div>
+        ),
+      },
+    ];
+  }
 }
 
 /**

@@ -13,22 +13,42 @@ import { useEffect, useRef, type ReactNode } from "react";
  * be closed without hunting for the button. Those are properties of the shell,
  * so they are written once here rather than in each dialog that needs them.
  *
- * Width and height, not size. `w-full` against a `max-w-md` means the dialog
+ * Width and height, not size. `w-full` against a `max-w-*` means the dialog
  * takes a narrow window rather than being cut off by it — this app is used in a
  * window narrow enough to sit beside a terminal often enough that "it fits
  * whatever width is left" is the layout rather than a refinement of it. The
  * scroll bounds handle the other half: a window shorter than the dialog scrolls
  * it, so the controls at its foot are still reachable instead of sitting below
  * the fold.
+ *
+ * The ceiling is the caller's, because a question and a table of Models want
+ * different amounts of it. What this owns is that both are `w-full` first, so
+ * the wider one is still only ever as wide as the window allows.
  */
 export type ModalProps = {
   /** Names the dialog, and is read aloud when it opens. Must be on screen. */
   labelledBy: string;
   onClose: () => void;
   children: ReactNode;
+  /**
+   * How much room the panel takes, for the dialogs whose content needs it.
+   *
+   * Narrow is the default and the right width for a question or a single form:
+   * a confirmation stretched across half a window is a bigger target than the
+   * decision it is asking about, and the space around it reads as emphasis.
+   * Wide is for a dialog holding a table of things — rows of figures beside
+   * names, where the name is the thing being truncated.
+   *
+   * Never a fixed pixel width: the window is what it is, and `w-full` below
+   * still means the dialog takes a narrow window rather than being cut off.
+   */
+  width?: "narrow" | "wide";
 };
 
-export function Modal({ labelledBy, onClose, children }: ModalProps) {
+/** The ceiling for each width, kept in one place so the two cannot be confused. */
+const WIDTHS = { narrow: "max-w-md", wide: "max-w-2xl" } as const;
+
+export function Modal({ labelledBy, onClose, children, width = "narrow" }: ModalProps) {
   const panel = useRef<HTMLDivElement>(null);
 
   // Focus in on open, and out on close. Both are captured from the live element
@@ -74,7 +94,7 @@ export function Modal({ labelledBy, onClose, children }: ModalProps) {
         // A click inside the dialog is not a click on the scrim, and letting it
         // through would close the dialog the moment the reader pressed anything.
         onClick={(event) => event.stopPropagation()}
-        className="hm-panel hm-scroll max-h-full w-full max-w-md overflow-y-auto p-5 text-ink-2"
+        className={`hm-panel hm-scroll max-h-full w-full ${WIDTHS[width]} overflow-y-auto p-5 text-ink-2`}
       >
         {children}
       </div>

@@ -4,7 +4,7 @@ import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Socket } from "node:net";
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -260,6 +260,19 @@ function openSettings() {
 function closeSettings() {
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
+}
+
+/**
+ * Opens Settings and moves to one of its tabs.
+ *
+ * Kept alongside `openSettings` rather than in the one test that needs it,
+ * because every other tab this file reaches for — the Endpoint and the Model —
+ * is on the tab that opens, and a helper for the common case is not a helper.
+ */
+function openSettingsAt(name: string) {
+  const dialog = openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name }));
+  return dialog;
 }
 
 /** The Endpoint the picker is on, as the reader would read it. */
@@ -859,7 +872,7 @@ describe("renaming and deleting", () => {
     await waitFor(() => expect(screen.getByText(/Two\./)).toBeTruthy(), { timeout: 5000 });
     await savedCount(2);
 
-    openSettings();
+    openSettingsAt("Saved");
 
     // The count is the app's own, not a number handed to the dialog: it has to be
     // the same one the list beside it is showing, or the reader is asked to agree
