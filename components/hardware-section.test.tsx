@@ -267,6 +267,65 @@ describe("the two fits, chosen by the reader", () => {
   });
 });
 
+describe("the advice the reader is given before downloading anything", () => {
+  const answered = { applies: true, minTokensPerSecond: 50, recommendations: [aRecommendation] };
+
+  it("tells them to read the Model's own page first", () => {
+    // The section's numbers are an estimate and its ordering is a proxy. Saying
+    // only that would leave a reader who wants a Model to act on the estimate
+    // anyway — so it has to say what to do instead, not merely what is wrong.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    expect(screen.getByText(/before you download one/i)).toBeTruthy();
+  });
+
+  it("says plainly that this app cannot tell them what a Model is good at", () => {
+    // The half that decides whether a Model suits them is the half this app does
+    // not have. Ranking by size and by popularity is a substitute for it, and a
+    // reader who does not know that will read the top row as a recommendation.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    expect(screen.getByText(/cannot tell you what that Model is good at/i)).toBeTruthy();
+  });
+
+  it("points at what the page has that this does not", () => {
+    // Concrete, so it can be acted on rather than merely absorbed: the card, the
+    // benchmarks the author chose, and the terms. The row already links there, so
+    // this costs a click the reader was going to make anyway.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    const advice = screen.getByText(/before you download one/i).textContent ?? "";
+
+    expect(advice).toContain("card");
+    expect(advice).toContain("benchmarks");
+    expect(advice).toContain("terms");
+  });
+
+  it("says it on either fit, once", async () => {
+    // True of the list on both tabs and not about the ordering, so it is a single
+    // shared paragraph rather than something folded into each tab's note — which
+    // would mean two copies to keep in step.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(screen.getAllByText(/before you download one/i)).toHaveLength(1));
+  });
+
+  it("is shown even when nothing qualifies", () => {
+    // The advice is about the section, not about a particular row. It has nothing
+    // to do with whether there happens to be a list under it.
+    stubRoutes({ recommendations: { applies: true, minTokensPerSecond: 50, recommendations: [] } });
+    render(<HardwareSection />);
+
+    expect(screen.getByText(/before you download one/i)).toBeTruthy();
+  });
+});
+
 describe("the Hardware section showing a recommendation", () => {
   it("links to the repository page, opening elsewhere", async () => {
     // The page carries the download button and lists the other quantisations,

@@ -214,6 +214,14 @@ Parameter count is a proxy for capability and the interface says so where the
 list is drawn, in the same way the speed fit admits that downloads are popularity
 rather than quality. Neither ordering is a measurement of merit.
 
+Because neither is, the section ends by telling the reader what to do about it:
+**look at the Model's own page before downloading one.** It can tell you how fast a
+file would decode here and roughly how much Model is in it, and it cannot tell you
+what that Model is good at — which is what the ordering is standing in for. The
+page carries the card, the benchmarks its author chose, and the terms it is
+offered under, and the row already links there. Saying only "this is an estimate"
+would leave a reader who wants a Model to act on the estimate anyway.
+
 Three things it will not do, each because the alternative is a confident wrong
 answer:
 

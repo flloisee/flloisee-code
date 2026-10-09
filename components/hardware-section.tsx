@@ -185,6 +185,8 @@ export function HardwareSection() {
       {answer !== null && <AnswerList answer={answer} asking={asking} rank={rank} />}
 
       <p className="hm-status">{FIT_NOTES[rank]}</p>
+
+      <p className="hm-status">{BEFORE_DOWNLOADING}</p>
     </section>
   );
 }
@@ -219,6 +221,28 @@ const FIT_NOTES: Record<Rank, string> = {
   intelligence:
     "Speeds are estimated from this machine's memory bandwidth, not measured on it. Rankings come from parameter count, which is a rough proxy for capability — more parameters is usually more capable, and sometimes much less so.",
 };
+
+/**
+ * What to do with this list before acting on it.
+ *
+ * The two notes above concede what the numbers are not. This one says what the
+ * reader has to do instead, because a section that only says "this is an
+ * estimate" leaves a reader who wants a Model to act on the estimate anyway.
+ *
+ * What the reader cannot get here is the half that actually decides whether a
+ * Model suits them: what it is good at, what its author measured, and what it is
+ * offered under. All three are on the repository page, which the row already
+ * links to, so this costs a click the reader was going to make anyway. Naming
+ * the terms in particular is the part a reader is most likely not to think of —
+ * and the one that has consequences outside this app entirely.
+ *
+ * Kept as its own paragraph rather than folded into `FIT_NOTES`, because it is
+ * not about the ordering and does not change with it: it is true of the list on
+ * both tabs, and folding it in would mean saying it twice and keeping the two
+ * copies in step.
+ */
+const BEFORE_DOWNLOADING =
+  "Check the Model's own page before you download one. This section knows how fast a file would decode on this machine and roughly how much Model is in it. It cannot tell you what that Model is good at — which is what the ordering above is standing in for — and the page carries the card, the benchmarks its author chose, and the terms it is offered under.";
 
 /**
  * The machine, or the reason there is not one to describe.
