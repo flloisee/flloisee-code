@@ -147,7 +147,7 @@ beforeEach(() => {
     return REAL_FETCH(input, init);
   }) as typeof fetch;
 
-  render(<Chat endpointId="ollama" modelId="llama3.2" />);
+  render(<Chat endpointId="ollama" />);
 });
 
 afterEach(() => {
