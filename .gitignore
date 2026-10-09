@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# macOS AppleDouble resource forks (created when working on some volumes,
+# including external SSDs). Vitest picks these up as broken test files.
+._*
+
 # vercel
 .vercel
 
