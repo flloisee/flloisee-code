@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import { Confirm } from "@/components/confirm";
 import { EndpointPicker } from "@/components/endpoint-picker";
+import { HardwareSection } from "@/components/hardware-section";
 import { Modal } from "@/components/modal";
 import { ModelPicker } from "@/components/model-picker";
 import { RootPicker } from "@/components/root-picker";
@@ -182,6 +183,27 @@ function SettingsDialog({
             has no way to know whether the Model can read anything. */}
         <div className="mt-5 border-t border-rule pt-4">
           <RootPicker />
+        </div>
+
+        {/* What this machine is, and which of the Models an Endpoint offers would
+            run on it. Below the Root because it is per-machine too — the same
+            machine answers the same way whichever Endpoint is chosen — and below
+            Endpoint and Model because those are what a reader opens this dialog
+            to change, where this is what they open it to check.
+
+            Takes the Endpoint id rather than reading it, so the one place that
+            holds the choice stays the one place that knows it. */}
+        {/* What this machine is, and which Models from Hugging Face would run
+            well on it. Below the Root because it is per-machine — the same
+            machine answers the same way whichever Endpoint is chosen — and below
+            Endpoint and Model because those are what a reader opens this dialog
+            to change, where this is what they open it to check.
+
+            Takes no Endpoint. A reader asking what they could run offline is not
+            yet running anything, and the answer must not shift with whichever
+            Endpoint the composer happens to be pointed at. */}
+        <div className="mt-5 border-t border-rule pt-4">
+          <HardwareSection />
         </div>
       </div>
 

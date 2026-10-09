@@ -144,7 +144,7 @@ hosting ever becomes the goal, that decision should be reopened rather than patc
 
 ## API
 
-Six Route Handlers, **all `POST` by design**. With Cache Components enabled, a `GET` handler
+Seven Route Handlers, **all `POST` by design**. With Cache Components enabled, a `GET` handler
 follows the prerender model of a page — so a response varying by Endpoint would be frozen at
 build time and every Endpoint would report the same answer. A silent wrong result rather
 than a visible failure.
@@ -154,6 +154,8 @@ than a visible failure.
 | `POST /api/chat` | Hold a Conversation. Streams a Response back progressively. |
 | `POST /api/endpoints` | The Registry, with each Endpoint's configured state. |
 | `POST /api/models` | Model Discovery against one Endpoint. |
+| `POST /api/hardware` | What machine this app is running on. Takes nothing. |
+| `POST /api/recommendations` | Which Models would run at a given speed on that machine. |
 | `POST /api/keys` | Key Entry. Development only. |
 | `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, the reader's own answers, and where a folder of a given name really is. Development only. |
 | `POST /api/files` | Naming a file from the Root: the `@` menu, and a verdict on a path the reader wrote. |
@@ -163,6 +165,79 @@ missing Credential, generation fails for entirely different reasons, and collaps
 would make every failure look like a chat failure. The same reasoning splits Root from
 files: choosing a folder is a write to this machine and refuses to run outside development,
 while asking what is in one writes nothing and therefore works in any build.
+
+`/api/hardware` and `/api/recommendations` take a deliberately narrow view of what a caller
+may say. The first takes **nothing** — `.strict()` on an empty object — because it shells out
+to fixed tools with a fixed argument vector, and the rule that no caller can influence which
+is the whole point of it. The second takes a single bounded number: how many tokens a second
+are worth having. Neither can name a repository, a search term or an address, so neither can
+be turned into a proxy for fetching something of a caller's choosing.
+
+## What would run on this machine
+
+Settings carries a **Hardware** section that answers a question the app otherwise
+cannot: not which Model is loaded, but **which Models from Hugging Face would run
+well on this machine**, so you can go and get one and use it offline.
+
+It reads the machine's own chip, memory and memory bandwidth, browses Hugging
+Face's quantised text-generation Models, measures the real size of each, and
+offers the ones that fit — each linking to its repository page so you can
+download it yourself. The app downloads nothing; it is advice, not an installer.
+
+A **slider** sets how many tokens a second is worth having, because the right
+answer depends on the machine and a fixed threshold picks one for you. On a 16 GB
+M4, 50 tokens a second permits only sub-2B Models; at 20, `Qwen3-8B` appears at
+roughly 21 tokens a second. That trade-off is the feature.
+
+Three things it will not do, each because the alternative is a confident wrong
+answer:
+
+- **No speed figure for an unknown chip.** The bandwidth table is hand-written;
+  a chip with no row gets no estimate rather than a guessed one.
+- **No quantisation below four bits.** A 2-bit or 3-bit Model decodes quickly
+  *because* it carries almost none of the Model, so ranking on speed alone is
+  ranking on how badly it survives. Where a Model is offered, it is the smallest
+  quantisation at or above `Q4_K_M` — the community default — because the bigger
+  ones are a far larger download for a difference nobody would notice.
+- **No fits at all when your Models run on another machine.** Everything shown is
+  computed from the chips of whatever machine serves the app. If your Model
+  server is on a NAS across the hall, those are the wrong chips, so the section
+  says so and offers nothing. The specs it did read are still accurate and still
+  shown.
+
+### Platform coverage
+
+Speeds and sizes are only offered where the chip could actually be identified. The
+table is the honest state of it:
+
+| Platform | GPU detected | How, and how well tested |
+| --- | --- | --- |
+| macOS | Yes | `system_profiler SPDisplaysDataType`. Verified against a live Apple Silicon Mac |
+| Linux + NVIDIA | Yes | `nvidia-smi --query-gpu`. Written from its documented output; **not run against real hardware** |
+| Linux + AMD | Yes | `rocm-smi`. Written from its documented output; **not run against real hardware**, and lenient because its output shape varies by ROCm version |
+| Windows + any GPU | No | Deliberate. `wmic` reports `AdapterRAM` as a 32-bit integer, truncating at 4 GB, so a 24 GB card reads as 4 and every Model would be marked too large. CPU and RAM are still reported; no fits are offered |
+| Any, CPU only | No | RAM is reported. No fits, because there is no bandwidth figure to estimate from |
+
+Where a row says "not run against real hardware", the parser is written against
+that tool's documentation and is defensive — it returns nothing rather than half
+reading — but it has not met a card. A machine in that category is treated as one
+with no GPU until it proves otherwise, which is the safe direction: a reader with
+a working NVIDIA card is told nothing rather than told something wrong.
+
+### What it asks of Hugging Face, and what it never sends
+
+This is the app's first outbound request to a third party that a reader did not
+name. It is anonymous, carries no Credential, and is made only when the slider is
+moved — never on page load, so a reader who opened Settings to change the Theme
+has not caused a call. The request carries nothing from the reader's
+environment, and there is a test that fails if an `Authorization` header ever
+appears in one.
+
+Models are browsed rather than searched, because a reader asking what they could
+run is not yet able to say what they want. The listing is filtered to quantised
+text-generation Models and ordered by downloads, which is the only quality signal
+available that is somebody else's judgement rather than this app's. It is
+popularity, not merit, and the section says so where the list is shown.
 
 ## Reading files
 
@@ -239,7 +314,7 @@ through the interface when you want them.
 | `pnpm dev` | Development server. |
 | `pnpm build` | Production build. |
 | `pnpm start` | Serve the production build. |
-| `pnpm test` | Vitest suite — 924 tests across 65 files. |
+| `pnpm test` | Vitest suite — 1155 tests across 82 files. |
 | `pnpm typecheck` | `tsc --noEmit`. Needs Next's generated route types, so run `pnpm dev` or `pnpm build` first in a fresh checkout. |
 | `pnpm lint` | ESLint. |
 | `pnpm test:mutation` | Mutation check on the security-critical paths. |
@@ -324,6 +399,14 @@ lib/
     use-registry.ts                   The one live answer about the Registry, shared
   models/                             Discovery, parsing, selection
   selection/                          The Endpoint and Model kept between visits
+  hardware/                           Probing this machine, and what would run on it
+    probe.ts                          CPU, memory and accelerator, via the platform's own tools
+    bandwidth.ts                      Per-chip memory bandwidth — the estimate's weak joint
+    speed.ts                          Bandwidth ÷ size, and the cliff where a Model spills to disk
+    where.ts                          Whether the Models run on this machine at all
+  huggingface/
+    catalogue.ts                      Browsing what would fit, and measuring what survives
+    quant.ts                          Quantised weights: aux files, shards, and the quality floor
   theme.ts                            The Theme, and the Preference Store
   env.ts                              The only place a Credential is written
   roots/                              The Root and its Grants, containment, the two walks and the name search

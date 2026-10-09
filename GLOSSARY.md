@@ -103,6 +103,37 @@ Asking an Endpoint which Models it currently offers, so a Model is chosen from a
 rather than typed from memory. Every Endpoint need not support it.
 _Avoid_: model enumeration, listing, scanning, probing
 
+## Hardware
+
+**Hardware**:
+The machine the app is running on, as far as anything in the app depends on: which
+chip it has, how much memory a Model would be decoded from, and how fast that
+memory moves. Read on this machine's own server, because the browser cannot see a
+GPU and the Local Endpoints live on the same machine the app does.
+_Avoid_: specs, machine info, system info, device
+
+**Speed fit**:
+Whether this machine would speak a given Model at a pace worth reading — the
+question of *can this be used*, as distinct from *is this any good*. The pace a
+reader wants is a control rather than a constant, because the answer moves a long
+way across the range on any given machine: 50 tokens a second permits only small
+Models on an M4, while 20 permits one most people would want.
+_Avoid_: performance, throughput, benchmark, speed
+
+**Fit**:
+Which Models from Hugging Face would run well on this Hardware, offered with the
+quantisation to download and a link to its repository. Deliberately independent of
+any Endpoint: a reader asking what they could run offline is not yet running
+anything, so the answer must not shift with whichever Endpoint the composer
+happens to be pointed at.
+_Avoid_: recommendation, suggestion, compatibility, support
+
+**Estimated**:
+Every tokens-per-second this app shows is an estimate derived from a Model's size
+on disk and a chip's memory bandwidth. Nothing here has been benchmarked on the
+reader's machine, and the word appears in the interface wherever a number does.
+_Avoid_: measured, actual, benchmarked
+
 ## Conversation
 
 **Conversation**:
