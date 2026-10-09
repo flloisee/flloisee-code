@@ -262,11 +262,19 @@ carries no talk of files.
 
 ### Eight steps
 
-`stopWhen: isStepCount(8)`, below the SDK's default of 20.
+`stopWhen: isStepCount(8)`.
+
+This is not a tuning decision. `streamText` defaults to `isStepCount(1)` — one step is the model
+producing a tool call and then stopping, with the result never read — so without a `stopWhen` set
+explicitly the Tools do not work at all. The number is a judgement on top of a floor.
 
 A tool loop costs a full round trip per step and burns tokens doing it. Small local Models loop
-when they are unsure — the same 8 caps a runaway and cuts off a legitimately long search. The
-limit is chosen for the Models most likely to need it.
+when they are unsure, so 8 caps a runaway and cuts off a legitimately long search. The limit is
+chosen for the Models most likely to need it.
+
+An earlier draft of this spec claimed the SDK defaulted to 20 and that 8 was a reduction. That was
+the documentation talking, not the package: 20 is `ToolLoopAgent`'s default, and the two are
+conflated in the SDK's own docs. Verified against `stream-text.ts`, which says `isStepCount(1)`.
 
 ### Reading works in any build; declaring a Root does not
 
