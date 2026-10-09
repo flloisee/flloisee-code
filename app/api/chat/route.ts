@@ -52,9 +52,14 @@ export async function POST(request: Request) {
 
   // ai@7: streamText returns synchronously and must NOT be awaited.
   // convertToModelMessages is async and MUST be awaited.
+  //
+  // The abortSignal matters: without it a Stop in the interface would only close
+  // the browser's connection, leaving this server still generating against the
+  // Endpoint for a Response nobody will ever read.
   const result = streamText({
     model: provider.chatModel(modelId),
     messages: await convertToModelMessages(messages as Parameters<typeof convertToModelMessages>[0]),
+    abortSignal: request.signal,
   });
 
   // The failure is described here, not left to the SDK's generic message, so

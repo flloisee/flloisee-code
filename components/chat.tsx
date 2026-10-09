@@ -44,13 +44,17 @@ function Turn({ message }: { message: UIMessage }) {
 export function Chat({ endpointId, modelId }: ChatProps) {
   const [input, setInput] = useState("");
 
-  const { messages, sendMessage, status, stop, error, setMessages } = useChat({
+  const { messages, sendMessage, status, stop, error, setMessages, regenerate } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     // Bound re-renders while a Response streams in, so reading stays smooth.
     throttle: 50,
   });
 
   const inProgress = status === "submitted" || status === "streaming";
+
+  // Regenerating rewrites the last Response, so it needs one to exist and
+  // nothing else in flight; otherwise two Responses would race for the same Turn.
+  const canRegenerate = !inProgress && messages.at(-1)?.role === "assistant";
 
   function startFreshConversation() {
     setMessages([]);
@@ -63,6 +67,13 @@ export function Chat({ endpointId, modelId }: ChatProps) {
 
     setInput("");
     void sendMessage({ text }, { body: { endpointId, modelId } });
+  }
+
+  function handleRegenerate() {
+    if (!canRegenerate) return;
+    // The request body is not remembered from the original send, so the Endpoint
+    // and Model have to be named again or the Route Handler rejects the retry.
+    void regenerate({ body: { endpointId, modelId } });
   }
 
   return (
@@ -119,7 +130,9 @@ export function Chat({ endpointId, modelId }: ChatProps) {
           Send
         </button>
 
-        {inProgress && (
+        {/* Stop and Regenerate are mutually exclusive: one abandons a Response
+            in flight, the other retries one that has already landed. */}
+        {inProgress ? (
           <button
             type="button"
             onClick={stop}
@@ -127,6 +140,16 @@ export function Chat({ endpointId, modelId }: ChatProps) {
           >
             Stop
           </button>
+        ) : (
+          canRegenerate && (
+            <button
+              type="button"
+              onClick={handleRegenerate}
+              className="rounded-md border border-black/[.15] px-4 py-2 text-sm dark:border-white/[.2]"
+            >
+              Regenerate
+            </button>
+          )
         )}
       </div>
     </div>
