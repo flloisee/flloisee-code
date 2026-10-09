@@ -12,6 +12,8 @@ import {
   writeConversation,
   type SavedConversation,
 } from "@/lib/conversations/store";
+import { rejectionFor } from "@/lib/testing/history";
+import { MAX_FILE_BYTES, MAX_READ_LINES } from "@/lib/tools/file-tools";
 
 /**
  * A fresh in-memory database per test, so ordering and deletion are asserted
@@ -163,6 +165,144 @@ async function plant(factory: IDBFactory, record: Record<string, unknown>): Prom
   // assertions rather than being left for each test to account for.
   await deleteConversation(factory, "seed");
 }
+
+/**
+ * Everything the database holds, read straight off the object store.
+ *
+ * The typed API is what most of these tests read through, because what a reader
+ * can see is what those return. This one cannot: "there is no second copy of the
+ * file's contents anywhere" is a claim about every record rather than about the
+ * one Conversation under test, and no caller of this module is given a way to
+ * check it. The same direct opening `plant` uses, read rather than written.
+ */
+async function everyRecord(factory: IDBFactory): Promise<unknown[]> {
+  await writeConversation(factory, conversation({ id: "seed" }));
+
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = factory.open("multi-endpoint-chat", 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+  const records = await new Promise<unknown[]>((resolve, reject) => {
+    const request = db
+      .transaction("conversations", "readonly")
+      .objectStore("conversations")
+      .getAll();
+    request.onsuccess = () => resolve(request.result as unknown[]);
+    request.onerror = () => reject(request.error);
+  });
+
+  db.close();
+  await deleteConversation(factory, "seed");
+  return records;
+}
+
+describe("a Conversation written before it could read files", () => {
+  // Every Conversation already on a reader's machine was written by a build
+  // that had never heard of a Tool Call, so all of them are this shape. They
+  // are not fixtures — they are what the reader actually has — and a store that
+  // grew a guard around the new parts would quietly lose them.
+  const BEFORE = {
+    id: "before-tools",
+    title: "Why is the build red?",
+    updatedAt: 1,
+    messages: [
+      { id: "m1", role: "user", parts: [{ type: "text", text: "Why is the build red?" }] },
+      { id: "m2", role: "assistant", parts: [{ type: "text", text: "A lint rule." }] },
+    ],
+  };
+
+  it("still opens, and still lists", async () => {
+    await plant(factory, BEFORE);
+
+    expect((await listConversations(factory)).map((c) => c.id)).toEqual(["before-tools"]);
+    expect((await readConversation(factory, "before-tools"))?.messages).toEqual(BEFORE.messages);
+  });
+
+  it("is still a history the Endpoint will take", async () => {
+    await plant(factory, BEFORE);
+
+    const stored = await readConversation(factory, "before-tools");
+
+    expect(await rejectionFor(stored!.messages)).toBeNull();
+  });
+});
+
+describe("a Conversation holding file contents", () => {
+  /** A read of the size the Tools will answer with at most. */
+  function largestRead() {
+    // Capped by lines and by bytes, and the byte ceiling decides how wide each
+    // line is. Taken from the Tools rather than made up here, so this test moves
+    // with them if either ceiling does.
+    const width = Math.ceil(MAX_FILE_BYTES / MAX_READ_LINES);
+    const lines = Array.from(
+      { length: MAX_READ_LINES },
+      (_, index) => `${index + 1}: ${"a".repeat(width)}`,
+    );
+
+    return {
+      type: "tool-read_file" as const,
+      toolCallId: "call_1",
+      state: "output-available" as const,
+      input: { path: "src/big.log" },
+      output: {
+        ok: true,
+        path: "src/big.log",
+        startLine: 1,
+        totalLines: MAX_READ_LINES,
+        lines,
+        continuesAtLine: null,
+        note: `${MAX_READ_LINES} lines. This is the whole file.`,
+      },
+    };
+  }
+
+  /** A Conversation whose only Turn is the biggest read there is. */
+  function holdingTheBiggestRead(): SavedConversation {
+    return conversation({
+      messages: [
+        { id: "m1", role: "user", parts: [{ type: "text", text: "what is in big.log?" }] },
+        { id: "m2", role: "assistant", parts: [largestRead()] },
+      ],
+    });
+  }
+
+  it("round-trips the whole of the biggest read the Tools will answer with", async () => {
+    // The ceiling here is the Tools', not the store's. One megabyte is well
+    // inside what a browser database takes, and a second and smaller ceiling in
+    // the store would be a limit nothing had asked for — a Conversation that
+    // silently lost the end of a file it had already read.
+    const read = largestRead();
+    await writeConversation(factory, holdingTheBiggestRead());
+
+    const stored = await readConversation(factory, "c1");
+
+    expect(stored?.messages[1].parts[0]).toEqual(read);
+  });
+
+  it("leaves the Conversation one the Endpoint will take", async () => {
+    await writeConversation(factory, holdingTheBiggestRead());
+
+    const stored = await readConversation(factory, "c1");
+
+    expect(await rejectionFor(stored!.messages)).toBeNull();
+  });
+
+  it("goes when the Conversation holding it is deleted", async () => {
+    await writeConversation(factory, holdingTheBiggestRead());
+    await writeConversation(factory, conversation({ id: "other", updatedAt: 2 }));
+
+    await deleteConversation(factory, "c1");
+
+    // Read across every record rather than through the read of one id: a store
+    // that kept the contents anywhere at all — beside the Conversation, in a
+    // second store, in a summary — would leave behind exactly the file the
+    // reader deleted a Conversation in order to be rid of.
+    expect(JSON.stringify(await everyRecord(factory))).not.toContain("big.log");
+    expect((await listConversations(factory)).map((c) => c.id)).toEqual(["other"]);
+  });
+});
 
 describe("records that no longer match", () => {
   it("skips a record whose shape is not a Conversation", async () => {
