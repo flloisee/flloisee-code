@@ -25,6 +25,7 @@ import { Settings } from "@/components/settings";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllEnvs();
   // The Theme is written to the document element and outlives unmounting, so a
   // switch made by one test would otherwise still be in force for the next.
   delete document.documentElement.dataset.theme;
@@ -120,6 +121,26 @@ describe("the Endpoint and Model in it", () => {
     // the Model a Conversation would be sent to rather than an empty box. The
     // field is the manual one here because nothing answered discovery.
     expect((within(dialog).getByLabelText("Model") as HTMLInputElement).value).toBe("llama3.2");
+  });
+});
+
+describe("the Reading Root in it", () => {
+  it("is configured here, and says so when there is no folder chosen", async () => {
+    // In development: outside it the route that names a Root refuses, and the
+    // control renders nothing rather than a picker that could only fail.
+    vi.stubEnv("NODE_ENV", "development");
+
+    const trigger = renderSettings();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog");
+
+    // The absence is stated. A blank row would leave a reader unable to tell a
+    // Root of none from a Root that failed to load, and therefore unable to know
+    // whether the Model can read their files at all.
+    await waitFor(() =>
+      expect(within(dialog).getByText(/no folder chosen/i)).toBeTruthy(),
+    );
   });
 });
 

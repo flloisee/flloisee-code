@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { ENV_FILE } from "../env";
+import { ENV_FILE } from "@/lib/env";
+import { ROOT_FILE } from "@/lib/roots/reading-root";
 
 /**
  * A throwaway project root to run the app in, and a clean way back out of it.
@@ -12,6 +13,11 @@ import { ENV_FILE } from "../env";
  * would mean overwriting whatever `.env.local` a developer actually depends on
  * and leaving their process environment changed. So each test gets a directory
  * of its own, and the environment and working directory are put back afterwards.
+ *
+ * The Reading Root file is here for the same reason and sits in the same place:
+ * a Root records a folder on this machine, and a test that declared the
+ * developer's own project folder as writable would be a test that changed what
+ * the app was allowed to read.
  *
  * The environment snapshot is taken when the project is created, not when a test
  * begins — which is what makes it usable for a test about the environment that
@@ -41,6 +47,8 @@ export type TemporaryProject = {
   readonly dir: string;
   /** The environment file inside it. */
   envFile(): string;
+  /** The Reading Root file inside it, beside the environment file. */
+  rootFile(): string;
   /**
    * For `beforeEach`: a fresh directory, the working directory set to it, and
    * the app running as a dev server would.
@@ -67,6 +75,7 @@ export async function temporaryProject(prefix = "key-entry-"): Promise<Temporary
       return dir;
     },
     envFile: () => path.join(dir, ENV_FILE),
+    rootFile: () => path.join(dir, ROOT_FILE),
     async begin() {
       await removeDir();
       dir = await mkdtemp(path.join(tmpdir(), prefix));

@@ -38,6 +38,13 @@ yarn-error.log*
 # like an ordinary new file.
 .key-entry-*.tmp
 
+# The Reading Root: which folder on this machine the Model may read, held by
+# path. It is this machine's directory layout rather than anything about the
+# app, so it is never committable — including the moment before it is renamed
+# into place.
+.reading-root.json
+.reading-root-*.tmp
+
 # Scratch directories left behind by a test run that did not clean up after
 # itself. Credentials are written into temp projects during Key Entry tests, so
 # a stray one must never be committable.

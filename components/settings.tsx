@@ -5,6 +5,7 @@ import { useState } from "react";
 import { EndpointPicker } from "@/components/endpoint-picker";
 import { Modal } from "@/components/modal";
 import { ModelPicker } from "@/components/model-picker";
+import { RootPicker } from "@/components/root-picker";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
@@ -27,6 +28,12 @@ import { ThemeToggle } from "@/components/theme-toggle";
  * Registry and Discovery are read again each time it is opened, which is the
  * point: a Model loaded a moment ago, and a Credential stored a moment ago, are
  * both things this way show without a reload.
+ *
+ * The Reading Root is here too, and nowhere else. It is a property of the
+ * machine rather than of the app's configuration — it names a folder on this
+ * developer's disk — so it does not belong beside the Conversation, and putting
+ * it above the reader's messages would make a capability that reads their files
+ * look like part of the chat.
  */
 
 /** What the dialog edits, passed in from the one place that holds it. */
@@ -115,6 +122,16 @@ function SettingsDialog({
           modelId={modelId}
           onSelect={onSelectModel}
         />
+
+        {/* The Reading Root, below the Model rather than beside the Endpoint:
+            it is not which backend the app talks to but what that backend is
+            allowed to see, and it is per-machine rather than per-Endpoint. Its
+            absence is stated rather than shown as an empty control, since a
+            reader who cannot tell a Root of none from a Root that failed to load
+            has no way to know whether the Model can read anything. */}
+        <div className="mt-5 border-t border-rule pt-4">
+          <RootPicker />
+        </div>
       </div>
 
       {/* The Theme, and the one preference here that is not configuration. Labelled

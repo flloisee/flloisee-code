@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { loadEnvConfig } from "@next/env";
 
+import { writeAtomically, type TempFileWriter } from "@/lib/atomic-write";
+
 /**
  * The one place in the app that writes a Credential, and the one place the
  * environment can change underneath a running server.
@@ -23,23 +25,13 @@ export const ENV_FILE = ".env.local";
 /**
  * The temporary file's name, inside the same directory as the file it replaces.
  *
- * Same directory, because `rename` is only atomic within one filesystem. Not
- * named `.env*`, because a name Next watches would trigger its asynchronous
+ * Not named `.env*`, because a name Next watches would trigger its asynchronous
  * reload in the middle of ours — one that reads the old file, and could land
  * after our own reload and undo it.
  */
-function tempFilePathFor(target: string): string {
-  return path.join(path.dirname(target), `.key-entry-${process.pid}.tmp`);
-}
+const tempName = `.key-entry-${process.pid}.tmp`;
 
-/**
- * How the temporary file is written. Injected so a test can fail a write part
- * way through, which is the interruption this design exists to survive.
- */
-export type TempFileWriter = (tempPath: string, contents: string) => Promise<void>;
-
-const writeTempFile: TempFileWriter = (tempPath, contents) =>
-  fs.writeFile(tempPath, contents, { encoding: "utf8", mode: 0o600 });
+export type { TempFileWriter };
 
 /**
  * Whether a value can be stored in the environment file and read back as itself.
@@ -204,7 +196,12 @@ export async function saveAndReloadEnvValue(input: SaveEnvValue): Promise<EnvSav
   const existing = await fs.readFile(target, "utf8").catch(() => "");
   const updated = setEnvValue(existing, name, value);
 
-  await writeAtomically(target, updated, input.writeTempFile ?? writeTempFile);
+  await writeAtomically({
+    target,
+    contents: updated,
+    tempName,
+    ...(input.writeTempFile ? { writeTempFile: input.writeTempFile } : {}),
+  });
 
   reloadEnv(dir);
 
@@ -212,30 +209,4 @@ export async function saveAndReloadEnvValue(input: SaveEnvValue): Promise<EnvSav
   const applied = live === value;
 
   return { envVar: name, applied, shadowedByShell: !applied && Boolean(live) };
-}
-
-/**
- * Writes to a temporary path and renames it over the target.
- *
- * Rename is the atomic step: the file a reader sees is either the previous
- * contents or the new ones, never a half-written Credential. An interrupted
- * write leaves the temporary file behind at worst, and the previous keys
- * readable.
- */
-async function writeAtomically(
-  target: string,
-  contents: string,
-  writeTempFile: TempFileWriter,
-): Promise<void> {
-  const tempPath = tempFilePathFor(target);
-
-  try {
-    await writeTempFile(tempPath, contents);
-    await fs.rename(tempPath, target);
-  } catch (error) {
-    // The temporary file holds a Credential. It is not left on disk by a failed
-    // save, and it is ignored by version control in case one is left anyway.
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-    throw error;
-  }
 }

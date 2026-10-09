@@ -17,15 +17,35 @@ set -u
 cd "$(dirname "$0")/.."
 
 WRITER=lib/env.ts
+ATOMIC=lib/atomic-write.ts
 ROUTE=app/api/keys/route.ts
+
+# The Reading Root files. Guarded on the same reasoning: this route and the walk
+# behind it are the only ways this app reaches outside its own directory, and
+# every one of them is a check rather than a convention.
+ROOTS=lib/roots/reading-root.ts
+WALK=lib/roots/walk.ts
+CONTAINMENT=lib/roots/containment.ts
+ROOTS_ROUTE=app/api/roots/route.ts
+
 BACKUP_DIR=$(mktemp -d)
 
 cp $WRITER $BACKUP_DIR/writer.ts
+cp $ATOMIC $BACKUP_DIR/atomic.ts
 cp $ROUTE $BACKUP_DIR/route.ts
+cp $ROOTS $BACKUP_DIR/roots.ts
+cp $WALK $BACKUP_DIR/walk.ts
+cp $CONTAINMENT $BACKUP_DIR/containment.ts
+cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
 
 restore() {
   cp $BACKUP_DIR/writer.ts $WRITER
+  cp $BACKUP_DIR/atomic.ts $ATOMIC
   cp $BACKUP_DIR/route.ts $ROUTE
+  cp $BACKUP_DIR/roots.ts $ROOTS
+  cp $BACKUP_DIR/walk.ts $WALK
+  cp $BACKUP_DIR/containment.ts $CONTAINMENT
+  cp $BACKUP_DIR/roots-route.ts $ROOTS_ROUTE
 }
 trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
 
@@ -74,9 +94,9 @@ run "M3 appends instead of rewriting in place" $WRITER \
   'lib/env.test.ts app/api/keys'
 
 # Writes over the real file, so an interrupted write corrupts it.
-run "M4 writes in place instead of temp-file + rename" $WRITER \
-  'await writeTempFile(tempPath, contents);' 'await writeTempFile(target, contents);' \
-  'lib/env.test.ts'
+run "M4 writes in place instead of temp-file + rename" $ATOMIC \
+  'await writer(tempPath, contents);' 'await writer(target, contents);' \
+  'lib/env.test.ts lib/roots'
 
 # Accepts a base URL from the caller.
 run "M5 accepts extra fields such as a base URL" $ROUTE \
@@ -98,10 +118,84 @@ run "M8 stores a value the file cannot hold" $ROUTE \
   'if (!canBeStoredVerbatim(credential)) {' 'if (false) {' \
   'app/api/keys/route.test.ts'
 
+# The Reading Root guards. The same reasoning as the ones above: each of these is
+# a check standing between a caller and this machine's disk, so each has to fail
+# when the check is removed.
+
+# Names a Root outside development.
+run "M9 names a Root outside development" $ROOTS_ROUTE \
+  'if (process.env.NODE_ENV !== "development") {' 'if (process.env.NODE_ENV === "never") {' \
+  'app/api/roots/route.test.ts'
+
+# Declares a Root the walk was never allowed to reach.
+run "M10 declares a Root outside the walk boundary" $ROOTS_ROUTE \
+  'const admitted = await admitUnder([walkBoundary()], declared);' \
+  'const admitted = { admitted: true, path: declared } as const;' \
+  'app/api/roots/route.test.ts'
+
+# Declares a Root that is a file, or nothing at all.
+run "M11 declares a Root that is not a folder" $ROOTS_ROUTE \
+  'if (!isFolder) return refused("not-a-directory");' 'if (false) return refused("not-a-directory");' \
+  'app/api/roots/route.test.ts'
+
+# Walks anywhere the caller names, which is a map of the machine.
+run "M12 lists a folder outside the boundary" $WALK \
+  'if (!admitted.admitted) return { ok: false, reason: admitted.reason };' 'if (false) return { ok: false, reason: admitted.reason };' \
+  'lib/roots/walk.test.ts app/api/roots/route.test.ts'
+
+# Checks containment before resolving, so a symlink out of the walk is followed
+# and then found to be inside.
+run "M13 admits a path that reaches out through a symlink" $CONTAINMENT \
+  'if (asked.path === edge.path || asked.path.startsWith(edge.path + path.sep)) {' \
+  'if (asked.path.startsWith(edge.path)) {' \
+  'lib/roots/containment.test.ts'
+
+# Compares by string prefix, so a sibling folder is admitted.
+run "M14 admits a sibling whose name begins the boundary's" $CONTAINMENT \
+  'edge.path + path.sep' 'edge.path' \
+  'lib/roots/containment.test.ts'
+
+# Lists a Credential's name as a clickable row.
+run "M15 lists an .env entry" $WALK \
+  'if (isSkipped(name)) continue;' 'if (false) continue;' \
+  'lib/roots/walk.test.ts'
+
+# Makes the temporary file the Root file itself, so there is no atomic step left
+# and an interrupted write leaves half a Root behind. Distinct from M4, which
+# removes the rename from the shared writer and is therefore checked against both
+# writers at once: this one is about `reading-root.ts` asking for a temporary file
+# at all, which is a mistake it could make independently of what the writer does.
+# Makes the temporary file the Root file itself, so there is no atomic step left
+# and an interrupted write leaves half a Root behind. Distinct from M4, which
+# removes the rename from the shared writer and is therefore checked against both
+# writers at once: this one is about `reading-root.ts` asking for a temporary file
+# at all, which is a mistake it could make independently of what the writer does.
+run "M16 records a Root with no temporary file" $ROOTS \
+  '    tempName,' \
+  '    tempName: target,' \
+  'lib/roots/reading-root.test.ts'
+
 restore
 print ""
-if git diff --quiet -- $WRITER $ROUTE; then
-  print "tree restored: $WRITER and $ROUTE are back as they were"
-else
-  print "TREE NOT RESTORED — check git status before committing"
-fi
+
+# Compared against the backups taken at the start rather than with `git diff`.
+# `git diff` asks whether the working tree matches HEAD, which is a different
+# question: any file this script touches that also carries uncommitted work of its
+# own would be reported as unrestored forever.
+for pair in \
+  "$BACKUP_DIR/writer.ts:$WRITER" \
+  "$BACKUP_DIR/atomic.ts:$ATOMIC" \
+  "$BACKUP_DIR/route.ts:$ROUTE" \
+  "$BACKUP_DIR/roots.ts:$ROOTS" \
+  "$BACKUP_DIR/walk.ts:$WALK" \
+  "$BACKUP_DIR/containment.ts:$CONTAINMENT" \
+  "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE"; do
+  backup=${pair%%:*}
+  original=${pair#*:}
+
+  if cmp -s $backup $original; then
+    print "restored | $original"
+  else
+    print "NOT RESTORED | $original"
+  fi
+done
