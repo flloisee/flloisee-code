@@ -68,7 +68,7 @@ const APPLY_STORED_THEME = `(function(){var t="light";try{var s=localStorage.get
 )});if(s==="light"||s==="dark"){t=s;}}catch(e){}document.documentElement.setAttribute("data-theme",t);})();`;
 
 export const metadata: Metadata = {
-  title: "Multi-Endpoint Chat",
+  title: "flloisee code",
   description: "Hold a Conversation with whichever AI Endpoint you point it at.",
 };
 

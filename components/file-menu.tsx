@@ -48,9 +48,10 @@ const LOOKING = "Looking through the folder you chose…";
  *
  * Above the composer rather than over it: a reader typing a path is looking at
  * the words they have written, and the menu is the thing they are typing *into*.
- * `bottom-[calc(100%+0.5rem)]` rather than `bottom-full` because the composer has
- * padding of its own and a popup flush against it reads as part of the toolbar
- * rather than as something that appeared.
+ * `bottom-[calc(100%+0.5rem)]` rather than `bottom-full` because a popup flush
+ * against the row of controls reads as part of the toolbar rather than as
+ * something that appeared. Placed against that row and not against the bar it
+ * sits in, so it is the width of the field rather than the width of the window.
  */
 const POPUP = "absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-[var(--z-dropdown)] hm-panel";
 

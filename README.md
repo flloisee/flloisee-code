@@ -8,7 +8,7 @@ without losing what you have said so far.
 
 **Status: v1.** All nine tracked tickets are resolved. The spec lives at
 `.scratch/multi-endpoint-chatbot/spec.md`. The domain vocabulary used below is defined in
-[`GLOSSARY.md`](./GLOSSARY.md), which names this feature **Multi-Endpoint Chat** — the name
+[`GLOSSARY.md`](./GLOSSARY.md), which names this feature **flloisee code** — the name
 used throughout the codebase.
 
 ## Endpoints

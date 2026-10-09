@@ -352,6 +352,45 @@ describe(CHOSEN, () => {
   });
 });
 
+/** The tip under the composer, or nothing once it has been taken away. */
+function tip(): string | null {
+  return document.querySelector<HTMLElement>('[data-tip="mention"]')?.textContent ?? null;
+}
+
+const TIP = "being told what `@` is for";
+
+describe(TIP, () => {
+  it("is said under the composer, because nothing else in the app mentions `@`", async () => {
+    await openComposer();
+
+    // The Root is chosen in a dialog most of a reader's time is spent outside of,
+    // and the menu is the only way to name a file without writing its path out —
+    // so a reader who has never guessed the character has no other way of
+    // finding out. It names the folder by the choosing rather than by its
+    // address, because the browser is never told the address at all.
+    expect(tip()).toContain("the folder you chose");
+  });
+
+  it("stays while the reader is only looking, and goes once they have picked", async () => {
+    await openComposer();
+    type("@ut");
+    await waitForMenu();
+
+    // Opening the menu is not having found it: a reader who looks and changes
+    // their mind still has to be told, and Escape would otherwise be a way to
+    // lose the sentence for good.
+    expect(tip()).not.toBeNull();
+
+    press("Enter");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    // A tip a reader has acted on is only in the way from here on. It comes back
+    // with the next Conversation, which is a remount rather than anything this
+    // component has to remember.
+    expect(tip()).toBeNull();
+  });
+});
+
 const CARET = "the menu and the composer underneath it";
 
 describe(CARET, () => {

@@ -198,6 +198,20 @@ export function Chat({
    */
   const caretOwed = useRef<number | null>(null);
 
+  /**
+   * Whether this reader has named a file with `@` in this Conversation.
+   *
+   * Only ever one way, because the tip below is a sentence about something the
+   * reader has not found yet, and a reader who has found it is only being told
+   * again. It comes back on its own when it should: the chat is remounted for
+   * every Conversation, so a reader who opens another one — or presses New —
+   * is told about `@` again rather than being left to remember it.
+   *
+   * Set on the pick rather than on the `@` being typed, so opening the menu and
+   * changing your mind does not take the sentence away for good.
+   */
+  const [namedWithAt, setNamedWithAt] = useState(false);
+
   const menu = useFileMenu({
     query: mention?.query ?? null,
     onPick: insertPath,
@@ -246,6 +260,7 @@ export function Chat({
 
     setInput(`${before}${chosen} ${after}`);
     setMention(null);
+    setNamedWithAt(true);
     caretOwed.current = before.length + chosen.length + 1;
   }
 
@@ -384,171 +399,246 @@ export function Chat({
           drawn, so the Turns do not slide sideways the moment the Theme
           changes — or the moment the first Turn makes this scrollable. */}
       <ApprovalAnswering answer={answerApproval}>
-        <div className="hm-scroll flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
-          {messages.length === 0 && (
-            <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
-              Send a message to begin a Conversation with {endpointName}.
-            </p>
-          )}
-          {messages.map((message) => (
-            <Turn key={message.id} message={message} />
-          ))}
+        <div className="hm-scroll flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+          {/* The reading column: capped and centred inside a shell that is as
+              wide as the window. The page used to be capped instead, and taking
+              that cap off it to fill the screen would have handed the prose the
+              whole screen as well — a Turn is a line being read, and a line a
+              hundred and fifty characters long is not one anybody reads to the
+              end.
+
+              So the cap moved here rather than away, and it is `max-w-6xl`
+              because a reader on a wide monitor found 896px too narrow to write
+              a message in: wide enough for a long one to be read while it is
+              being written, narrow enough that a Response still wraps inside a
+              line rather than a screen. **The same cap is on the composer row
+              and on the error line below** — the field and the Turns have to end
+              in the same place, or Send stops lining up with the reader's own
+              Turn above it. Change all three together. */}
+          <div className="mx-auto max-w-6xl space-y-4">
+            {messages.length === 0 && (
+              <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
+                Send a message to begin a Conversation with {endpointName}.
+              </p>
+            )}
+            {messages.map((message) => (
+              <Turn key={message.id} message={message} />
+            ))}
+          </div>
         </div>
       </ApprovalAnswering>
 
       {error && (
-        <p role="alert" className="mx-4 mb-2 sm:mx-6">
+        <p role="alert" className="mx-auto w-full max-w-6xl px-4 pb-2 sm:px-6">
           <span className="hm-status hm-status--error">{error.message}</span>
         </p>
       )}
 
-      {/* The composer wraps rather than shrinking: at a narrow width the field
-          takes its own full-width row and the controls sit beneath it, so no
-          button label is ever squeezed into two lines or clipped. `relative` is
-          for the menu alone — it is placed against this box rather than the
-          window, so it stays over the composer the reader is typing into however
-          far down the page the Conversation has grown. */}
-      <div className="relative flex flex-wrap items-end gap-2 border-t border-rule bg-paper px-4 py-3 sm:px-6">
-        {/* What a message written here will be sent to, said where it is written.
-            The Endpoint and Model are chosen in Settings and a Conversation runs
-            long past the choosing, so the pair the reader is actually talking to
-            sits beside the control that will carry it — otherwise the only place
-            it is written down is a dialog they would have to reopen to read it.
-            Kept to one quiet line, because it is a readout rather than a control:
-            the Model is in the mono register as elsewhere, being a machine string
-            read character by character, and the pair is truncated with the whole
-            of it one hover away. */}
-        <p
-          // `data-in-use` names the readout for the tests, so an assertion can
-          // read what a message would be sent to without going by the words it
-          // happens to be made of.
-          data-in-use
-          title={[endpointName, modelId].filter(Boolean).join(" · ")}
-          className="basis-full truncate text-xs text-muted"
-        >
-          {endpointName}
-          {/* Absent rather than trailing when no Model is resolved, so the line
-              reads as what it knows rather than as a separator before nothing. */}
-          {modelId && <span className="font-mono"> · {modelId}</span>}
-        </p>
+      {/* The composer is two boxes: a bar across the whole column, and the row of
+          controls inside it at the reading measure — the `max-w-6xl` the Turns
+          above are capped at, and for their reason. The rule and the paper span
+          the width the shell now occupies, so the composer reads as the foot of
+          the Conversation rather than as a box floating in the middle of it; the
+          controls stop at the measure, because a field a monitor wide is a field
+          the caret runs out of before the message does.
 
-        {/* The menu, which is a popup over the composer and never a dialog
-            beside it. It is rendered here so it sits inside the box the popup is
-            placed against, and unmounted rather than hidden whenever there is no
-            `@` being typed — a menu left on screen with nothing behind it is a
-            menu offering a Root the reader has stopped asking about. */}
-        {menu.popup}
+          That row wraps rather than shrinking: at a narrow width the field takes
+          its own full-width row and the controls sit beneath it, so no button
+          label is ever squeezed into two lines or clipped. `relative` is on the
+          row rather than the bar, and is for the menu alone — it is placed
+          against the row instead of the window, so it stays over the composer the
+          reader is typing into however far down the page the Conversation has
+          grown, and it is the width of the field rather than the width of the
+          screen. */}
+      <div className="border-t border-rule bg-paper px-4 py-3 sm:px-6">
+        <div className="relative mx-auto flex w-full max-w-6xl flex-wrap items-end gap-2">
+          {/* What a message written here will be sent to, said where it is written.
+              The Endpoint and Model are chosen in Settings and a Conversation runs
+              long past the choosing, so the pair the reader is actually talking to
+              sits beside the control that will carry it — otherwise the only place
+              it is written down is a dialog they would have to reopen to read it.
+              Kept to one quiet line, because it is a readout rather than a control:
+              the Model is in the mono register as elsewhere, being a machine string
+              read character by character, and the pair is truncated with the whole
+              of it one hover away. */}
+          <p
+            // `data-in-use` names the readout for the tests, so an assertion can
+            // read what a message would be sent to without going by the words it
+            // happens to be made of.
+            data-in-use
+            title={[endpointName, modelId].filter(Boolean).join(" · ")}
+            className="basis-full truncate text-xs text-muted"
+          >
+            {endpointName}
+            {/* Absent rather than trailing when no Model is resolved, so the line
+                reads as what it knows rather than as a separator before nothing. */}
+            {modelId && <span className="font-mono"> · {modelId}</span>}
+          </p>
 
-        {/* The files this message is about, in the same place and for the same
-            reason, and never at the same time: while an `@` is being typed the
-            words after it are half a filename, and a row asking about one would be
-            a question about something the reader has not finished typing. The menu
-            closes the moment a name is chosen, and the row it left behind is then
-            the answer. */}
-        {!menu.open && named.panel}
+          {/* The menu, which is a popup over the composer and never a dialog
+              beside it. It is rendered here so it sits inside the box the popup is
+              placed against, and unmounted rather than hidden whenever there is no
+              `@` being typed — a menu left on screen with nothing behind it is a
+              menu offering a Root the reader has stopped asking about. */}
+          {menu.popup}
 
-        <textarea
-          ref={field}
-          value={input}
-          onChange={(event) => {
-            const value = event.target.value;
-            // Typing puts a dismissed menu back, rather than leaving a reader
-            // who pressed Escape unable to bring it up again without starting the
-            // mention over. The same goes for a refusal about a named file: a
-            // reader who has read it and carried on typing has read it.
-            menu.typing();
-            named.typing();
-            setInput(value);
-            // Read from the caret rather than from the end of the text, because a
-            // reader who has moved back up the message is editing there and a menu
-            // that followed the end of the line would be answering a different
-            // sentence.
-            setMention(mentionAt(value, event.target.selectionStart ?? value.length));
-          }}
-          onBlur={() => setMention(null)}
-          onKeyDown={(event) => {
-            // Asked first, and only while the menu is open — so a key the menu has
-            // no use for, and every key when it is closed, still does what it does
-            // in a textarea.
-            if (menu.handleKey(event.key)) {
-              // Taken, not merely seen: an arrow key would move the caret out from
-              // under the menu, and an Enter would send a message the reader was
-              // still choosing a name inside.
-              event.preventDefault();
-              return;
-            }
+          {/* The files this message is about, in the same place and for the same
+              reason, and never at the same time: while an `@` is being typed the
+              words after it are half a filename, and a row asking about one would be
+              a question about something the reader has not finished typing. The menu
+              closes the moment a name is chosen, and the row it left behind is then
+              the answer. */}
+          {!menu.open && named.panel}
 
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              handleSubmit();
-            }
-          }}
-          placeholder="Send a message…"
-          rows={1}
-          aria-label="Message"
-          // The combobox wiring, in full, because this is the case it was written
-          // for: the field keeps the focus and the caret throughout, and the row
-          // being chosen is named from here rather than by anything that took
-          // focus to hold it. `aria-expanded` is `false` the whole time no `@` is
-          // being typed, which is most of a reader's time in this field.
-          role="combobox"
-          aria-expanded={menu.open}
-          aria-haspopup="listbox"
-          aria-autocomplete="list"
-          aria-controls={menu.open ? menu.listId : undefined}
-          aria-activedescendant={menu.activeId}
-          // `resize-y` rather than none: a one-row box cannot hold a long
-          // message, and the reader should be able to make room for it.
-          className="hm-field order-1 max-h-40 basis-full resize-y sm:order-none sm:max-h-none sm:basis-auto sm:flex-1"
-        />
+          <textarea
+            ref={field}
+            value={input}
+            onChange={(event) => {
+              const value = event.target.value;
+              // Typing puts a dismissed menu back, rather than leaving a reader
+              // who pressed Escape unable to bring it up again without starting the
+              // mention over. The same goes for a refusal about a named file: a
+              // reader who has read it and carried on typing has read it.
+              menu.typing();
+              named.typing();
+              setInput(value);
+              // Read from the caret rather than from the end of the text, because a
+              // reader who has moved back up the message is editing there and a menu
+              // that followed the end of the line would be answering a different
+              // sentence.
+              setMention(mentionAt(value, event.target.selectionStart ?? value.length));
+            }}
+            onBlur={() => setMention(null)}
+            onKeyDown={(event) => {
+              // Asked first, and only while the menu is open — so a key the menu has
+              // no use for, and every key when it is closed, still does what it does
+              // in a textarea.
+              if (menu.handleKey(event.key)) {
+                // Taken, not merely seen: an arrow key would move the caret out from
+                // under the menu, and an Enter would send a message the reader was
+                // still choosing a name inside.
+                event.preventDefault();
+                return;
+              }
 
-        <button
-          type="button"
-          onClick={startFreshConversation}
-          disabled={messages.length === 0}
-          className="hm-btn hm-btn--quiet order-2 sm:order-none"
-        >
-          New
-        </button>
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="Send a message…"
+            rows={1}
+            aria-label="Message"
+            // The combobox wiring, in full, because this is the case it was written
+            // for: the field keeps the focus and the caret throughout, and the row
+            // being chosen is named from here rather than by anything that took
+            // focus to hold it. `aria-expanded` is `false` the whole time no `@` is
+            // being typed, which is most of a reader's time in this field.
+            role="combobox"
+            aria-expanded={menu.open}
+            aria-haspopup="listbox"
+            aria-autocomplete="list"
+            aria-controls={menu.open ? menu.listId : undefined}
+            aria-activedescendant={menu.activeId}
+            // `resize-y` rather than none: a one-row box cannot hold a long
+            // message, and the reader should be able to make room for it.
+            className="hm-field order-1 max-h-40 basis-full resize-y sm:order-none sm:max-h-none sm:basis-auto sm:flex-1"
+          />
 
-        {/* Disabled while a Response is in progress so Turns cannot interleave, and
-            while a read is waiting to be answered: a Turn started behind an open
-            question would send a history in which the Model has asked for
-            something and been told nothing, which reads as though the answer was
-            yes. Held down the same way while a file the reader named is waiting on
-            *their* answer, for the same reason and with the same consequence — and
-            "Deny" is on the row beside them, so refusing one file never refuses the
-            whole message. */}
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={inProgress || awaitingAnswer || named.open > 0 || input.trim().length === 0}
-          className="hm-btn hm-btn--primary order-3 sm:order-none sm:ml-auto"
-        >
-          Send
-        </button>
-
-        {/* Stop and Regenerate are mutually exclusive: one abandons a Response
-            in flight, the other retries one that has already landed. */}
-        {inProgress ? (
           <button
             type="button"
-            onClick={stop}
-            className="hm-btn order-4 sm:order-none"
+            onClick={startFreshConversation}
+            disabled={messages.length === 0}
+            className="hm-btn hm-btn--quiet order-2 sm:order-none"
           >
-            Stop
+            New
           </button>
-        ) : (
-          canRegenerate && (
+
+          {/* Disabled while a Response is in progress so Turns cannot interleave, and
+              while a read is waiting to be answered: a Turn started behind an open
+              question would send a history in which the Model has asked for
+              something and been told nothing, which reads as though the answer was
+              yes. Held down the same way while a file the reader named is waiting on
+              *their* answer, for the same reason and with the same consequence — and
+              "Deny" is on the row beside them, so refusing one file never refuses the
+              whole message. */}
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={inProgress || awaitingAnswer || named.open > 0 || input.trim().length === 0}
+            className="hm-btn hm-btn--primary order-3 sm:order-4 sm:ml-auto"
+          >
+            Send
+          </button>
+
+          {/* Stop and Regenerate are mutually exclusive: one abandons a Response
+              in flight, the other retries one that has already landed. */}
+          {inProgress ? (
             <button
               type="button"
-              onClick={handleRegenerate}
-              className="hm-btn order-4 sm:order-none"
+              onClick={stop}
+              className="hm-btn order-4 sm:order-5"
             >
-              Regenerate
+              Stop
             </button>
-          )
-        )}
+          ) : (
+            canRegenerate && (
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                className="hm-btn order-4 sm:order-5"
+              >
+                Regenerate
+              </button>
+            )
+          )}
+
+          {/* What `@` is for, said where `@` is typed.
+              The menu is the only way to name a file without writing its path out,
+              and nothing else in the interface mentions it: the Root lives behind
+              the Settings dialog, so a reader who has never guessed the character
+              has no way of finding out that they do not have to remember paths.
+              Under the field rather than in it, because the placeholder is already
+              spoken for and a tip inside the box would be a second thing read
+              before the reader has written anything of their own.
+
+              **On the row with the controls, between New and Send, once there is
+              room for it.** Centred there rather than hung off the left edge of a
+              row of its own, where it sat under New and read as a label for it; on
+              the controls' row it is level with the buttons it describes, which is
+              what a sentence about this composer should look like.
+
+              That is what the orders are for. `sm:flex-1` is the space it takes to
+              be centred: it grows into whatever the field and the buttons leave,
+              sharing it with the field rather than squeezing it — which on a narrow
+              window means both are smaller and the sentence wraps to two lines. The
+              three controls are each given an order one higher at `sm` than below
+              it, so the tip can take the place Send holds on a narrow window and
+              sit ahead of it on a wide one. Below `sm` there is no such space, so
+              it keeps its own full-width row under the buttons, where it is
+              centred and legible.
+
+              Said about "the folder you chose" rather than naming the folder, which
+              the browser is not told — and it is not a promise the app cannot keep
+              when no folder has been chosen: the menu says so in its own words the
+              moment the reader types the `@`, which is the better moment for it
+              anyway, since that is where they are looking. */}
+          {!namedWithAt && (
+            <p
+              // `data-tip` names the sentence for the tests, on the reasoning
+              // `data-in-use` records: an assertion should not be pinned to the
+              // exact words the tip happens to be drawn with.
+              data-tip="mention"
+              // `self-center` rather than the row's `items-end`, so the sentence
+              // sits level with the labels inside the buttons beside it rather
+              // than level with their bottom edge.
+              className="order-5 basis-full text-center text-xs text-muted sm:order-3 sm:flex-1 sm:self-center"
+            >
+              Type <span className="font-mono text-ink-2">@</span> to name a file or folder from the
+              folder you chose, and what it holds is sent with your message.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -16,13 +16,17 @@ export default function Home() {
   const endpoint = LOCAL_ENDPOINTS[0];
 
   return (
-    // One column, ruled top and bottom, centred by width rather than by
-    // content. The page is an instrument panel: the Conversation is the whole
-    // subject and the shell stays out of its way.
-    // Wider than one reading column, because the saved Conversations now sit
-    // beside it. The list has its own width, so the reading measure is unchanged
-    // and the page has not become a full-bleed transcript.
-    <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col border-x border-rule font-sans">
+    // One column, ruled down each side, filling the window rather than
+    // centred in it. The page is an instrument panel: the Conversation is the
+    // whole subject, and the shell is sized by the screen the reader has rather
+    // than by a width this file decides — the previous `max-w-5xl` left a third
+    // of a wide monitor empty while the conversation beside it ran out of room.
+    //
+    // The gutter rather than no gutter at all, so the rules have something to
+    // mark the edge of. It is small and it does not grow: this is a margin, not
+    // a second layout. `mx-*` with no width of its own, because the body is a
+    // column flex and this stretches to whatever the margins leave.
+    <main className="mx-2 flex min-h-0 flex-1 flex-col border-x border-rule font-sans sm:mx-4">
       {/* The wordmark alone: the Theme is a preference rather than part of any
           Conversation, so it sits in the Settings at the foot of the list
           instead of beside the title. */}
@@ -31,7 +35,7 @@ export default function Home() {
             app. Small and grounded — this is a utility that opens on a Local
             Endpoint, not a product page that needs a hero. */}
         <h1 className="min-w-0 font-display text-lg font-semibold tracking-tight text-ink">
-          Multi-Endpoint Chat
+          flloisee code
         </h1>
       </header>
 

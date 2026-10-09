@@ -1,4 +1,4 @@
-# Multi-Endpoint Chat
+# flloisee code
 
 A chat application that talks to whichever AI backend the user points it at — a model
 running on their own machine, or a hosted service — without the app caring which.
