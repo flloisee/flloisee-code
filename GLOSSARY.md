@@ -17,7 +17,9 @@ makes a single integration cover all of them.
 _Avoid_: OpenAI API, compatible provider, standard endpoint
 
 **Local Endpoint**:
-An Endpoint served from the machine running the app. Requires no Credential.
+An Endpoint served from the machine running the app. Requires no Credential. Declared by
+hand rather than drawn from the Catalog, which reaches no local server: Ollama and LM
+Studio are the two the app is built around.
 _Avoid_: offline endpoint, self-hosted endpoint, on-prem endpoint
 
 **Cloud Endpoint**:
@@ -47,13 +49,18 @@ _Avoid_: API key, secret, token, password
 **Key Entry**:
 The act of a user supplying a Cloud Endpoint's Credential through the interface, which
 writes it to the environment and makes that Endpoint Configured. A single-user local act:
-the user enters their own key on their own machine.
+the user enters their own key on their own machine. Writing a Credential and having it in
+use are separate facts, and Key Entry reports which one happened: a shell export serving a
+different value, and a process that has not picked the name up, are each told apart from a
+Credential that is stored and live.
 _Avoid_: key setup, credential configuration, onboarding
 
 **Catalog**:
 The reviewed set of known Cloud Endpoints held in source control, supplying base URLs
 and Credential variable names. Reviewed as code because it decides where Credentials are
-sent. It does not cover Local Endpoints.
+sent. It does not cover Local Endpoints. One Credential variable names exactly one
+service: where a vendor runs a service per region, each gets its own name rather than
+sharing one, so entering a Credential Configures the one Endpoint the reader chose.
 _Avoid_: registry, provider list, directory
 
 ## Models

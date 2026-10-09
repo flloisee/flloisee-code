@@ -6,16 +6,27 @@ This is the tracer bullet: it cuts a narrow but complete path through the chat r
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A Local Endpoint (Ollama, at its conventional address) can be declared alongside its model identifier, needing no Credential
-- [ ] Sending a message produces a Response that streams to the interface progressively rather than appearing all at once on completion
-- [ ] My own messages and the model's are visually distinguishable
-- [ ] The send control is disabled while a Response is in progress, so Turns cannot interleave
-- [ ] A Response can be stopped mid-stream
-- [ ] The input clears after sending, and Enter sends
-- [ ] A second message produces an answer that accounts for the first, so the Conversation has continuity
-- [ ] I can start a fresh Conversation, clearing prior context
-- [ ] Every request is proxied through the server; the browser never contacts an Endpoint directly
-- [ ] The text-generation call is invoked synchronously (not awaited) while the UI-message conversion call is awaited — the AI SDK's current major version requires both, and getting either wrong fails silently or breaks the build
-- [ ] The app passes type checking, lint, and build
+- [x] A Local Endpoint (Ollama, at its conventional address) can be declared alongside its model identifier, needing no Credential
+- [x] Sending a message produces a Response that streams to the interface progressively rather than appearing all at once on completion
+- [x] My own messages and the model's are visually distinguishable
+- [x] The send control is disabled while a Response is in progress, so Turns cannot interleave
+- [x] A Response can be stopped mid-stream
+- [x] The input clears after sending, and Enter sends
+- [x] A second message produces an answer that accounts for the first, so the Conversation has continuity
+- [x] I can start a fresh Conversation, clearing prior context
+- [x] Every request is proxied through the server; the browser never contacts an Endpoint directly
+- [x] The text-generation call is invoked synchronously (not awaited) while the UI-message conversion call is awaited — the AI SDK's current major version requires both, and getting either wrong fails silently or breaks the build
+- [x] The app passes type checking, lint, and build
+
+## Verification notes
+
+Ollama was not running on this machine, so the tracer bullet was verified against a
+real HTTP server speaking the OpenAI-compatible streaming format rather than a mock
+of the model layer. `app/api/chat/streaming.test.ts` drives the Route Handler over a
+real socket and asserts the deltas arrive as separate chunks and that the whole
+Conversation is forwarded. The streaming path was additionally confirmed by hand
+through `next dev`, where three `text-delta` events arrived on distinct ticks.
+
+Ollama itself has not been exercised against a live instance.

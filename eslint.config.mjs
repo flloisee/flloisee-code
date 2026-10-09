@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // AppleDouble sidecars. The external drive this repo lives on creates a
+    // ._name file beside anything written to it, and each is a binary resource
+    // fork that eslint tries to parse as TypeScript — failing on a file that
+    // holds no source at all. Tests and the build already skip these; lint did
+    // not, so every edited file made `pnpm lint` fail for a reason unrelated to
+    // the edit.
+    "**/._*",
   ]),
 ]);
 

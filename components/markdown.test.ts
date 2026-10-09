@@ -1,0 +1,197 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+
+import { Markdown } from "@/components/markdown";
+
+/**
+ * A Response is rendered as formatted text rather than as a wall of unstyled
+ * characters. These tests observe what the interface actually puts on screen —
+ * the markup a reader receives — rather than how the renderer is built.
+ */
+
+const render = (markdown: string) => renderToStaticMarkup(createElement(Markdown, null, markdown));
+
+describe("a Response rendered as formatted text", () => {
+  it("shows lists, headings, emphasis, and links as distinct elements", () => {
+    const html = render(
+      [
+        "## Setup",
+        "",
+        "Install **Ollama**, then:",
+        "",
+        "- pull the Model",
+        "- start the Endpoint",
+        "",
+        "See [the docs](https://ollama.com).",
+      ].join("\n"),
+    );
+
+    expect(html).toContain("<h2");
+    expect(html).toContain("<ul");
+    expect(html).toContain("<li");
+    expect(html).toContain("<strong>");
+    expect(html).toContain('<a href="https://ollama.com/"');
+  });
+});
+
+describe("model output reaching the renderer", () => {
+  /**
+   * A Response is untrusted input. Point this app at a third-party Endpoint and
+   * whatever that Endpoint — or anyone who can influence the Model's output —
+   * emits is what gets rendered here, so a Response must never be able to
+   * introduce script, markup, or a loaded resource.
+   */
+  const UNSAFE_URLS = [
+    "[click](javascript:alert(1))",
+    "[click](  javascript:alert(1))",
+    "[click](JaVaScRiPt:alert(1))",
+    "[click](java\tscript:alert(1))",
+    "[click](java\nscript:alert(1))",
+    "[click](vbscript:msgbox(1))",
+    "![img](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)",
+    "![img](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)",
+  ];
+
+  it.each(UNSAFE_URLS)("never turns %s into a live URL", (payload) => {
+    const html = render(payload);
+
+    expect(html).not.toMatch(/href="javascript:/i);
+    expect(html).not.toMatch(/href="vbscript:/i);
+    expect(html).not.toMatch(/src="data:/i);
+  });
+
+  const RAW_HTML = [
+    "<img src=x onerror=alert(1)>",
+    "<script>alert(1)</script>",
+    "<a href='javascript:alert(1)'>click</a>",
+    "<iframe src='https://evil.test'></iframe>",
+  ];
+
+  it.each(RAW_HTML)("shows %s as text rather than rendering it", (payload) => {
+    const html = render(payload);
+
+    // Escaped output is the whole point: the reader sees the characters, and
+    // the browser sees no element. A live <img/<script/<iframe would defeat it.
+    expect(html).not.toMatch(/<(img|script|iframe|a)\b/i);
+    expect(html).toContain("&lt;");
+  });
+
+  const IRRELEVANT_SCHEMES = [
+    "[chat](irc://irc.example.com/room)",
+    "[chat](ircs://irc.example.com/room)",
+    "[chat](xmpp://me@example.com)",
+  ];
+
+  it.each(IRRELEVANT_SCHEMES)("does not link to %s, a scheme this app never uses", (payload) => {
+    const html = render(payload);
+
+    expect(html).not.toContain("<a ");
+  });
+
+  it("does not link into the app's own origin, where a relative path would resolve", () => {
+    // A relative link in a Response silently targets this app, so it can
+    // address a route the reader never meant to reach.
+    const html = render("[go](/api/spike-env) and [also](settings.json)");
+
+    expect(html).not.toContain("<a ");
+  });
+
+  it("keeps ordinary links clickable", () => {
+    const html = render("[docs](https://example.com/a?b=1#c)");
+
+    expect(html).toContain('<a href="https://example.com/a?b=1#c"');
+  });
+});
+
+/**
+ * The endpoint delivers a Response one text delta at a time, so the renderer is
+ * handed every intermediate state of the document: an unclosed fence, half a
+ * table row, a link with no closing bracket. Each of those is a prefix of the
+ * finished Response, which is what `RESPONSE` below is walked through.
+ */
+const RESPONSE = [
+  "## Running a Local Endpoint",
+  "",
+  "1. Start [Ollama](https://ollama.com).",
+  "2. Pull a **Model**:",
+  "",
+  "   ```sh",
+  "   ollama pull llama3.2",
+  "   ```",
+  "",
+  "| Field | Value |",
+  "| ----- | ----- |",
+  "| port  | 11434 |",
+  "",
+  "Then set `OLLAMA_HOST` and try `curl -s localhost:11434/api/tags`.",
+].join("\n");
+
+const plainText = (html: string) => html.replace(/<[^>]*>/g, "").trim();
+
+describe("a Response arriving in fragments", () => {
+  it("renders every intermediate state without throwing", () => {
+    for (let end = 1; end <= RESPONSE.length; end++) {
+      expect(() => render(RESPONSE.slice(0, end))).not.toThrow();
+    }
+  });
+
+  it("renders progressively, showing most of the text before the last delta", () => {
+    const complete = plainText(render(RESPONSE));
+    const halfDelivered = plainText(render(RESPONSE.slice(0, Math.floor(RESPONSE.length / 2))));
+
+    // If formatting only appeared once the Response was whole, the halfway
+    // point would be near-empty. Instead roughly half the text is already
+    // readable at half delivery, and the rest is still genuinely to come.
+    expect(halfDelivered.length).toBeGreaterThan(complete.length * 0.4);
+    expect(halfDelivered.length).toBeLessThan(complete.length);
+  });
+
+  it("settles on the finished document once the last delta arrives", () => {
+    const complete = plainText(render(RESPONSE));
+
+    expect(complete).toContain("Running a Local Endpoint");
+    expect(complete).toContain("ollama pull llama3.2");
+    expect(complete).toContain("11434");
+  });
+});
+
+describe("a malformed Response", () => {
+  const MALFORMED = [
+    "",
+    " ",
+    "`",
+    "```",
+    "```js",
+    "```js\nconst x = 1;",
+    "**",
+    "*italic",
+    "[link](",
+    "[link](http://",
+    "| a | b |",
+    "|---|",
+    "<",
+    "<div",
+    "![",
+    "> quote",
+    "- ",
+    "1. ",
+    "- [ ] unchecked",
+    "- [x] checked",
+    "~~~",
+    "\u0000\u0001", // raw control bytes, which an Endpoint can emit
+    "a".repeat(5000),
+    "```\n```\n```\n",
+  ];
+
+  it.each(MALFORMED)("renders %j without throwing", (payload) => {
+    expect(() => render(payload)).not.toThrow();
+  });
+
+  it("keeps a fenced block readable even when its closing fence never arrives", () => {
+    const html = render("```ts\nconst answer = 42; // still streaming");
+
+    expect(html).toContain("<pre");
+    expect(html).toContain("const answer = 42;");
+  });
+});

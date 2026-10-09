@@ -305,6 +305,18 @@ pattern.
 - Deployment to hosted infrastructure, which would put Local Endpoints out of reach
 - Mobile-specific layout beyond remaining usable on a narrow window
 
+## Status
+
+Implemented on `spec/multi-endpoint-chatbot`. All nine tickets resolved.
+
+Two-axis code review found six classes of issue, all fixed. The consequential one
+was not a coding defect: eight Credential variable names were shared by catalog
+entries pointing at different hosts, so entering one key made several Endpoints
+Configured and proxied the value to multiple addresses. Every agent building
+against the Catalog had satisfied its own ticket; nobody checked that catalog
+data and a security assumption were compatible. The Catalog now validates that
+one variable cannot span two hosts, and each regional service carries its own.
+
 ## Further Notes
 
 **Build against a Local Endpoint first.** Ollama and LM Studio need no Credential and no

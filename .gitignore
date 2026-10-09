@@ -33,6 +33,20 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# A Credential being written: Key Entry's temporary file, which exists between
+# writing and renaming and would otherwise be an untracked secret that looks
+# like an ordinary new file.
+.key-entry-*.tmp
+
+# Scratch directories left behind by a test run that did not clean up after
+# itself. Credentials are written into temp projects during Key Entry tests, so
+# a stray one must never be committable.
+_tmp_*
+
+# macOS AppleDouble resource forks (created when working on some volumes,
+# including external SSDs). Vitest picks these up as broken test files.
+._*
+
 # vercel
 .vercel
 
