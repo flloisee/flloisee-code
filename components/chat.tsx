@@ -178,6 +178,29 @@ export function Chat({
           takes its own full-width row and the controls sit beneath it, so no
           button label is ever squeezed into two lines or clipped. */}
       <div className="flex flex-wrap items-end gap-2 border-t border-rule bg-paper px-4 py-3 sm:px-6">
+        {/* What a message written here will be sent to, said where it is written.
+            The Endpoint and Model are chosen in Settings and a Conversation runs
+            long past the choosing, so the pair the reader is actually talking to
+            sits beside the control that will carry it — otherwise the only place
+            it is written down is a dialog they would have to reopen to read it.
+            Kept to one quiet line, because it is a readout rather than a control:
+            the Model is in the mono register as elsewhere, being a machine string
+            read character by character, and the pair is truncated with the whole
+            of it one hover away. */}
+        <p
+          // `data-in-use` names the readout for the tests, so an assertion can
+          // read what a message would be sent to without going by the words it
+          // happens to be made of.
+          data-in-use
+          title={[endpointName, modelId].filter(Boolean).join(" · ")}
+          className="basis-full truncate text-xs text-muted"
+        >
+          {endpointName}
+          {/* Absent rather than trailing when no Model is resolved, so the line
+              reads as what it knows rather than as a separator before nothing. */}
+          {modelId && <span className="font-mono"> · {modelId}</span>}
+        </p>
+
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}

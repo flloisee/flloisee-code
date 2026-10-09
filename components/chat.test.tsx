@@ -206,6 +206,27 @@ function Harness() {
  */
 const onSave: (messages: UIMessage[]) => void = () => {};
 
+/**
+ * Re-renders the chat on a different Endpoint and Model, replacing the Harness.
+ *
+ * These tests are about what the composer says rather than about a Request, so
+ * the pair is set directly rather than reached through Settings — and the
+ * Harness is unmounted first, because two composers on screen at once would let
+ * an assertion read the wrong one.
+ */
+function renderOn(endpointId: string, endpointName: string, modelId: string) {
+  cleanup();
+  render(
+    <Chat
+      endpointId={endpointId}
+      endpointName={endpointName}
+      modelId={modelId}
+      conversation={null}
+      onSave={onSave}
+    />,
+  );
+}
+
 afterEach(() => {
   cleanup();
   globalThis.fetch = REAL_FETCH;
@@ -272,6 +293,11 @@ async function waitForResponseWords(count: number) {
   await waitFor(() => expect(wordsShown()).toBeGreaterThanOrEqual(count), { timeout: 5000 });
 }
 
+/** What a message sent from the composer would be sent to, as the reader reads it. */
+function inUse(): string {
+  return document.querySelector<HTMLElement>("[data-in-use]")?.textContent ?? "";
+}
+
 /**
  * One Turn is one user message and the Response it produced. They are shown
  * differently on purpose: a Response is formatted by the Model, whereas what
@@ -333,6 +359,67 @@ describe("a Turn in the Conversation", () => {
     // And it survives the round trip out of the Conversation intact.
     fireEvent.click(screen.getByRole("button", { name: /copy/i }));
     expect(writeText).toHaveBeenCalledWith(line);
+  });
+});
+
+/**
+ * Which Endpoint and Model a message will reach, said where it is written.
+ *
+ * Both are chosen in Settings, which sits in the other column and is closed by
+ * default — so a Conversation can run a long way with the reader unable to say
+ * which Model produced what they are reading. The composer says it, and this
+ * asserts the reader sees the pair that will actually be used.
+ */
+describe("the Endpoint and Model a message will be sent to", () => {
+  it("are named above the composer, with no Conversation open", () => {
+    // The case that needs it most: an empty Conversation names the Endpoint in
+    // its own prompt, so the readout has to be saying something the prompt is
+    // not — here, the Model, which the prompt never mentions.
+    expect(turnsOnScreen()).toEqual([]);
+    expect(inUse()).toContain("Ollama");
+    expect(inUse()).toContain("llama3.2");
+  });
+
+  it("are still named once a Conversation is under way", async () => {
+    endpointAnswers(["Alpha", "Bravo"]);
+    sendMessage("hello");
+    await waitForResponseWords(2);
+
+    // Being in use is the normal state of this component, so the readout cannot
+    // be a thing that only appears while there is nothing to say.
+    expect(turnsOnScreen().length).toBeGreaterThan(0);
+    expect(inUse()).toContain("Ollama");
+    expect(inUse()).toContain("llama3.2");
+  });
+
+  it("says the Model it will use rather than one the Endpoint declares", () => {
+    // The Endpoint's declared Model is a starting point, and the one chosen for
+    // it is what a Request actually carries. Reporting the declared one instead
+    // would name the wrong Model for every Endpoint whose Model had been changed.
+    renderOn("lmstudio", "LM Studio", "qwen3.5-4b-mlx");
+
+    expect(inUse()).toContain("qwen3.5-4b-mlx");
+    expect(inUse()).not.toContain("qwen/qwen3-coder-30b");
+  });
+
+  it("names the Endpoint the same way it is named elsewhere", () => {
+    renderOn("lmstudio", "LM Studio", "qwen3.5-4b-mlx");
+
+    // By name, not by id: the Endpoint's name is what the picker and the empty
+    // state call it, and a reader who knows it as LM Studio is helped by no id.
+    expect(inUse()).toContain("LM Studio");
+    expect(inUse()).not.toContain("lmstudio");
+  });
+
+  it("keeps the whole of it one hover away, since a Model identifier can be long", () => {
+    // `truncate` cuts it to one line, so the cut text is the only copy when a
+    // long identifier is not fully visible.
+    const title = document
+      .querySelector<HTMLElement>("[data-in-use]")
+      ?.getAttribute("title");
+
+    expect(title).toContain("Ollama");
+    expect(title).toContain("llama3.2");
   });
 });
 

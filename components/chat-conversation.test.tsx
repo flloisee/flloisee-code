@@ -239,6 +239,17 @@ async function savedCount(n: number) {
   await waitFor(() => expect(names()).toHaveLength(n), { timeout: 5000 });
 }
 
+/**
+ * What a message sent from the composer would be sent to, as the reader reads it.
+ *
+ * Read from the composer rather than from the picker, because that is where the
+ * reader would look: the choice is made in a dialog that closes, and the question
+ * this answers is whether what they chose is the thing still on show afterwards.
+ */
+function inUse(): string {
+  return document.querySelector<HTMLElement>("[data-in-use]")?.textContent ?? "";
+}
+
 /** Opens Settings, which is where the Endpoint and Model are chosen. */
 function openSettings() {
   fireEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -439,6 +450,50 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     expect(askedFor[0].endpointId).toBe("ollama");
 
     // Waited for the Response for the same cross-test reason as above.
+    await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
+  });
+});
+
+describe("the Endpoint and Model in use are shown while chatting", () => {
+  it("says which Endpoint and Model a message will go to", () => {
+    renderApp();
+
+    // Shown before anything is sent, not only once there is a Conversation: the
+    // first message is chosen under the same uncertainty as the hundredth.
+    expect(inUse()).toContain("Ollama");
+    expect(inUse()).toContain("llama3.2");
+  });
+
+  it("follows a new Endpoint and Model, once Settings is closed again", async () => {
+    plans = [["One."]];
+    renderApp();
+
+    await chooseSecondEndpoint();
+
+    openSettings();
+    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
+      timeout: 5000,
+    });
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "neohorse-1-4b-mlx" },
+    });
+    closeSettings();
+
+    // The dialog is gone, so this can only be the composer reading the choice
+    // rather than the picker echoing it back. Naming the previous Endpoint or
+    // Model here would leave the reader typing into a composer that says one
+    // thing while the Request carries another.
+    expect(inUse()).toContain("LM Studio");
+    expect(inUse()).toContain("neohorse-1-4b-mlx");
+    expect(inUse()).not.toContain("llama3.2");
+
+    // And it is what the next message actually reaches — the readout and the
+    // Request are the same pair or the readout is decoration.
+    send("First question");
+    await waitFor(() => expect(askedFor).toHaveLength(1), { timeout: 5000 });
+    expect(askedFor[0]).toEqual({ endpointId: "lmstudio", modelId: "neohorse-1-4b-mlx" });
+
+    // Waited for the Response for the same cross-test reason as elsewhere above.
     await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
   });
 });
