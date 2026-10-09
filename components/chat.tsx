@@ -4,6 +4,7 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { useState } from "react";
 
+import { EndpointPicker } from "@/components/endpoint-picker";
 import { ModelPicker } from "@/components/model-picker";
 import { findEndpoint } from "@/lib/endpoints/registry";
 import { rememberModel, selectedModel } from "@/lib/models/selection";
@@ -11,7 +12,7 @@ import { rememberModel, selectedModel } from "@/lib/models/selection";
 import { Markdown } from "./markdown";
 
 export type ChatProps = {
-  /** The Endpoint the user has selected. */
+  /** The Endpoint the Conversation opens on. The user can choose another. */
   endpointId: string;
 };
 
@@ -53,10 +54,11 @@ export function Turn({ message }: { message: UIMessage }) {
   );
 }
 
-export function Chat({ endpointId }: ChatProps) {
+export function Chat({ endpointId: initialEndpointId }: ChatProps) {
   const [input, setInput] = useState("");
   // Keyed by Endpoint, so switching back to one restores the Model chosen there.
   const [selection, setSelection] = useState<Record<string, string>>({});
+  const [endpointId, setEndpointId] = useState(initialEndpointId);
 
   const endpoint = findEndpoint(endpointId);
   const modelId = selectedModel(selection, endpointId, endpoint?.defaultModelId ?? "");
@@ -95,9 +97,11 @@ export function Chat({ endpointId }: ChatProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* The chosen Model stays on screen above the Conversation, so it is
-          always clear which Model produced a Response. */}
+      {/* The chosen Endpoint and Model stay on screen above the Conversation, so
+          it is always clear which one produced a Response. */}
       <div className="px-4 pt-3">
+        <EndpointPicker endpointId={endpointId} onSelect={setEndpointId} />
+
         <ModelPicker
           endpointId={endpointId}
           endpointName={endpoint?.name ?? endpointId}

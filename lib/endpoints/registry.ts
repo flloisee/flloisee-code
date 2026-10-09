@@ -1,4 +1,5 @@
-import type { LocalEndpoint } from "./types";
+import { CLOUD_ENDPOINTS } from "./validate";
+import type { Endpoint, LocalEndpoint } from "./types";
 
 /**
  * Local Endpoints are declared by hand rather than drawn from the Catalog:
@@ -14,9 +15,19 @@ export const LOCAL_ENDPOINTS: readonly LocalEndpoint[] = [
   },
 ];
 
-/** Every Endpoint the app offers, Local Endpoints for now. */
-export const ENDPOINTS: readonly LocalEndpoint[] = LOCAL_ENDPOINTS;
+/**
+ * Every Endpoint the app offers: Cloud Endpoints from the Catalog, Local
+ * Endpoints declared alongside it.
+ *
+ * One list, because choosing an Endpoint is one choice. A reader picking a
+ * provider should not have to know which of the two sources it came from, and a
+ * Cloud Endpoint with no Credential yet stays in the list so its absence is
+ * visible rather than silent.
+ */
+export const ENDPOINTS: readonly Endpoint[] = [...LOCAL_ENDPOINTS, ...CLOUD_ENDPOINTS];
 
-export function findEndpoint(id: string): LocalEndpoint | undefined {
+export { CLOUD_ENDPOINTS };
+
+export function findEndpoint(id: string): Endpoint | undefined {
   return ENDPOINTS.find((endpoint) => endpoint.id === id);
 }
