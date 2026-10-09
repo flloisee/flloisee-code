@@ -8,6 +8,8 @@ import { ModelPicker } from "@/components/model-picker";
 import { findEndpoint } from "@/lib/endpoints/registry";
 import { rememberModel, selectedModel } from "@/lib/models/selection";
 
+import { Markdown } from "./markdown";
+
 export type ChatProps = {
   /** The Endpoint the user has selected. */
   endpointId: string;
@@ -18,24 +20,34 @@ export type ChatProps = {
  *
  * Message parts are rendered rather than plain strings so reasoning and tool
  * parts can appear later without reshaping this component.
+ *
+ * The two roles are shown differently on purpose. A Response is formatted text
+ * the Model chose, so it is rendered as such. What the user typed is theirs to
+ * have shown back verbatim, so it is left as written — including the single
+ * newlines that a formatted rendering would otherwise swallow.
  */
-function Turn({ message }: { message: UIMessage }) {
+export function Turn({ message }: { message: UIMessage }) {
   const fromUser = message.role === "user";
+
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    // A Response can arrive as several parts; blank lines keep them from
+    // merging into one paragraph when they are rendered together.
+    .join("\n\n");
 
   return (
     <div className={`flex ${fromUser ? "justify-end" : "justify-start"}`}>
+      {/* `min-w-0` lets a wide code block scroll inside its own box instead of
+          stretching this flex child past the window. */}
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-2.5 whitespace-pre-wrap ${
+        className={`min-w-0 max-w-[85%] break-words rounded-2xl px-4 py-2.5 ${
           fromUser
-            ? "bg-foreground text-background"
+            ? "whitespace-pre-wrap bg-foreground text-background"
             : "border border-black/[.08] bg-white text-foreground dark:border-white/[.15] dark:bg-zinc-900"
         }`}
       >
-        {message.parts
-          .filter((part) => part.type === "text")
-          .map((part, index) => (
-            <span key={index}>{part.text}</span>
-          ))}
+        {fromUser ? text : <Markdown>{text}</Markdown>}
       </div>
     </div>
   );
