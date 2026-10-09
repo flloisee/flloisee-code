@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { namedPaths } from "./named-path";
@@ -114,12 +116,22 @@ describe(NOT_NAMED, () => {
     expect(namedPaths("file:///etc/hosts")).toEqual([]);
   });
 
-  it("with home-directory shorthand, which this app does not resolve", () => {
-    // Nothing here expands `~`, so `~/notes.md` would be resolved as a folder
-    // named `~` inside the Root, find nothing, and read as a path that is not
-    // there. Naming it would put a question in front of the reader about a file
-    // they did not mean. The reader pastes the full path, or picks from the Root.
-    expect(namedPaths("look at ~/notes.md")).toEqual([]);
+  it("with home-directory shorthand, which it expands", () => {
+    // `~/notes.md` is how a developer writes a path that is not inside the folder
+    // they shared, and that is the common case here rather than the rare one. It
+    // expands to an ordinary absolute path and then goes through containment like
+    // any other, so it asks the reader in exactly the way `/Users/me/notes.md`
+    // does. Expanding it grants nothing; refusing it only means the reader has to
+    // write out the long form to get the same question.
+    expect(namedPaths("look at ~/notes.md")).toEqual([join(homedir(), "notes.md")]);
+    expect(namedPaths("and ~/ alone")).toEqual([homedir()]);
+  });
+
+  it("with a tilde that is not home shorthand, which is English", () => {
+    // The expansion is `~` and `~/` only. Everything else starting with a tilde
+    // is prose, and refusing it here is what keeps "~5 files" from being a file.
+    expect(namedPaths("~5 files were changed")).toEqual([]);
+    expect(namedPaths("~really not a path")).toEqual([]);
   });
 
   it("with a word, however much it looks like a filename without a dot or a slash", () => {

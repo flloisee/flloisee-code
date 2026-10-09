@@ -23,9 +23,19 @@
  * answers exist: a rule clever enough to open a file would have to know the disk,
  * and a rule that knows the disk has to be the one that is right.
  *
- * No imports, and nothing here that can tell a file from a folder. Whether a path
- * is there, and what it is, is a question for the route.
+ * What it does not decide is what may be read. A path that is recognised is
+ * still refused by containment, on the server, in `mayRead` — the same function
+ * the three Tools ask. Recognising a path is how the app comes to ask about one;
+ * it is never how it comes to read one. That separation is the whole reason both
+ * answers exist: a rule clever enough to open a file would have to know the disk,
+ * and a rule that knows the disk has to be the one that is right.
+ *
+ * Nothing here tells a file from a folder, and nothing here touches the Root.
+ * Whether a path is there, and what it is, is a question for the route.
  */
+
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * How long a token can be and still be a path.
@@ -96,12 +106,19 @@ function asPath(token: string): string | null {
   if (NOT_A_CHARACTER.test(trimmed)) return null;
   if (URL.test(trimmed) || ADDRESS.test(trimmed)) return null;
 
-  // Home-directory shorthand, which this app does not resolve. Nothing here
-  // expands a `~`, so `~/notes.md` would be read as a folder named `~` inside the
-  // Root, find nothing there, and be reported as a file that is not there. Naming
-  // it would put a question in front of the reader about a file they did not mean
-  // — and `~` in ordinary prose ("~5 files") is not rare. The reader pastes the
-  // path in full, or picks the file from the Root.
+  // Home-directory shorthand, expanded rather than refused. `~/notes.md` is how a
+  // developer writes a path that is not inside the folder they shared, and it is
+  // the common case here rather than the rare one — the Root is a project, and
+  // the files a reader asks about are frequently their own notes or their dotfiles.
+  //
+  // Expanding it grants nothing. The result is an ordinary absolute path, which
+  // then goes through containment like any other, so `~/notes.md` asks the reader
+  // for permission in exactly the way `/Users/me/notes.md` does. Refusing it would
+  // only mean the reader had to write out the long form to get the same question.
+  //
+  // `~/` and a bare `~`, and nothing else: `~5 files` and `~really` are English,
+  // and they fail the rules below on their own anyway.
+  if (trimmed === "~" || trimmed.startsWith("~/")) return expandHome(trimmed);
   if (trimmed.startsWith("~")) return null;
 
   if (isAbsolute(trimmed) || isExplicitlyRelative(trimmed)) return trimmed;
@@ -122,6 +139,27 @@ function asPath(token: string): string | null {
 /** `/usr/local`, and never `/` on its own, which separates and names nothing. */
 function isAbsolute(candidate: string): boolean {
   return candidate.startsWith("/") && candidate.length > 1;
+}
+
+/**
+ * `~` and `~/notes.md` become the reader's own home directory.
+ *
+ * The one impure line in this file, and it is here rather than at the call site
+ * because the composer and the server must expand identically — a token the
+ * composer showed as a file and the server then read as something else would ask
+ * the reader about one thing and send another.
+ *
+ * Read per call rather than at import, for the same reason `walkBoundary` is: a
+ * test can point this at a temporary home, and the answer must belong to the
+ * moment it was asked rather than to when the process started.
+ */
+function expandHome(candidate: string): string {
+  const home = homedir();
+  // `~` and `~/` are both the home directory itself. Left to `join`, `~/` would
+  // come back with a trailing separator — `/Users/me/` — which is a different
+  // string from the home directory and would not compare equal to it.
+  const rest = candidate.slice(1);
+  return rest === "" || rest === "/" ? home : join(home, rest);
 }
 
 /** `./src` and `../other/notes.md`: the reader has said which folder they mean. */

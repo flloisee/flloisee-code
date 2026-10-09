@@ -56,15 +56,23 @@ is an address; one `@` with no separator and nothing empty is an email address
 (`node_modules/@scope/pkg` is not — it has a separator); anything over 1024 characters or holding
 a control character is not a path the disk could hold.
 
-**`~` is not recognised and is not expanded.** Nothing in this app resolves home-directory
-shorthand, so `~/notes.md` would be read as a folder named `~` inside the Root, find nothing, and
-be reported as a file that is not there. Recognising it would put a question in front of the
-reader about a file they did not mean, and `~` in ordinary prose ("~5 files") is not rare.
-Expanding it would mean changing `resolveAgainstRoot`, which the approval policy and the three
-Tools share, and handing the server's home directory to a token the reader typed. The reader
-pastes the path in full or picks the file from the Root, and their words go to the Model
-verbatim either way, so nothing is lost — the file simply is not attached, which is the state
-the app was in before this feature.
+**`~` and `~/` are expanded; a tilde that is not home shorthand is not.** The first pass refused
+all of them, on the reasoning that `~` in prose ("~5 files") is not rare and that expanding it
+hands the server's home directory to a token the reader typed. That reasoning was about the risk
+of expansion, and it was answered by refusing the common case rather than by narrowing the rule
+— so `~/notes.md`, which is how a developer writes a path outside the project folder, did not
+name a file at all.
+
+The narrower rule is that `~` and `~/` expand and everything else beginning with a tilde stays
+English, which the existing rules already refuse on their own. Expanding grants nothing: the
+result is an ordinary absolute path that then goes through containment like any other, so
+`~/notes.md` asks the reader in exactly the way `/Users/me/notes.md` does. It is a home directory
+on a single-user local app whose own walk is already bounded to that same home.
+
+The expansion lives here rather than in `resolveAgainstRoot`, which the approval policy and the
+three Tools share, so it touches nothing the Model can reach: a path the Model names is never
+run through a tilde rule. `~/` returns the home directory with no trailing separator, since
+`/Users/me/` is a different string from `/Users/me` and would not compare equal to it.
 
 **The cost of that conservatism: a bare folder name is not a path.** The `@` menu offers folders
 and inserts their Root-relative name, so picking `src` puts the word `src` in the message and
