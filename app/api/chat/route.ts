@@ -1,13 +1,42 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { convertToModelMessages, streamText } from "ai";
+import { convertToModelMessages, isStepCount, streamText } from "ai";
 import { z } from "zod";
 
 import { describeFailure } from "@/lib/chat/failure";
 import { findEndpoint } from "@/lib/endpoints/registry";
 import { resolveEndpoint } from "@/lib/endpoints/resolve";
+import { readReadingRoot } from "@/lib/roots/reading-root";
+import { fileTools } from "@/lib/tools/file-tools";
+import { readingApproval } from "@/lib/tools/approval";
+import { READING_INSTRUCTIONS } from "@/lib/tools/instructions";
 
-/** Generous ceiling for a long generation; streaming Responses should not be cut short. */
+/**
+ * How long one Turn may take.
+ *
+ * A generous ceiling for a long generation, and a tool Turn needs more of it
+ * rather than less: eight steps against a loaded local Model is eight round
+ * trips, none of which is this app's to shorten. Streaming Responses should not
+ * be cut short, and a Turn cut short reads to the reader as the Endpoint
+ * hanging rather than as a ceiling doing its job.
+ */
 export const maxDuration = 300;
+
+/**
+ * How many steps one Turn may take when the Model can read files.
+ *
+ * Not a tuning decision, and not optional. `streamText` defaults to
+ * `isStepCount(1)`, which is one step: the Model produces a Tool Call and the
+ * loop stops without ever reading the result, so omitting this leaves the Tools
+ * inert rather than merely slow. The 20 the SDK's documentation quotes as the
+ * default belongs to `ToolLoopAgent` and not to `streamText`; verified against
+ * the installed package, which says `isStepCount(1)`.
+ *
+ * Eight is a judgement on top of that floor. A tool loop costs a full round trip
+ * per step and burns tokens doing it, small local Models loop when they are
+ * unsure, and eight caps a runaway while still letting a question that spans
+ * several files be answered in one go.
+ */
+const STEPS_PER_TURN = 8;
 
 /**
  * One message of the Conversation, as the interface sends it.
@@ -88,14 +117,42 @@ export async function POST(request: Request) {
     ...(resolution.credential ? { apiKey: resolution.credential } : {}),
   });
 
+  // What the app will read, read from a file of its own.
+  //
+  // **No filesystem path is ever taken from the request.** The browser resends
+  // the whole message history each Turn and can post anything to this route, so
+  // a Root a caller could name would be an arbitrary-file-read primitive pointed
+  // at a server holding every Credential on this machine. The schema above
+  // drops unknown keys, and nothing below reads one: the Root comes from
+  // `.reading-root.json`, which only this app's own development route writes.
+  const reading = await readReadingRoot(process.cwd());
+
+  // Everything about reading is one block and one condition. With no Root
+  // declared, none of it is passed at all — not the Tools, not the approval
+  // policy, not the instructions, not the step limit — and the Turn behaves
+  // exactly as it did in v1. That is a product promise rather than an
+  // optimisation: a reader who has not chosen a folder gets no talk of files, no
+  // file reads, and no step ceiling to reason about.
+  const canRead = reading.root !== null;
+
   // ai@7: streamText returns synchronously and must NOT be awaited.
   // convertToModelMessages is async and MUST be awaited.
   //
   // The abortSignal matters: without it a Stop in the interface would only close
   // the browser's connection, leaving this server still generating against the
-  // Endpoint for a Response nobody will ever read.
+  // Endpoint for a Response nobody will ever read. It covers the Tools as well
+  // as the generation — the SDK hands the same signal to each Tool's `execute`,
+  // and `search_files` passes it to the walk that is looking through the Root.
   const result = streamText({
     model: provider.chatModel(modelId),
+    ...(canRead
+      ? {
+          tools: fileTools(reading),
+          toolApproval: readingApproval(reading),
+          instructions: READING_INSTRUCTIONS,
+          stopWhen: isStepCount(STEPS_PER_TURN),
+        }
+      : {}),
     messages: await convertToModelMessages(
       messages as Parameters<typeof convertToModelMessages>[0],
     ),
