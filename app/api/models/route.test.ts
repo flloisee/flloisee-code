@@ -1,9 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { createServer } from "node:http";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import * as modelsRoute from "@/app/api/models/route";
 import { findEndpoint } from "@/lib/endpoints/registry";
 
 const { POST } = modelsRoute;
+
+/**
+ * Points the declared Endpoint at an address where nothing listens, rather than
+ * at its real one. Whether a developer happens to have Ollama running must not
+ * decide whether this suite passes; an Endpoint that is not running is the
+ * state these tests need, so one is arranged deliberately.
+ */
+const silent = createServer();
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      // Bound just long enough to claim a port nothing is using, then released
+      // so that nothing is listening there for the tests below.
+      silent.listen(0, "127.0.0.1", () => {
+        const address = silent.address();
+        const port = typeof address === "object" && address ? address.port : 0;
+        silent.close(() => {
+          findEndpoint("ollama")!.baseURL = `http://127.0.0.1:${port}/v1`;
+          resolve();
+        });
+      });
+    }),
+);
 
 function modelsRequest(body: unknown): Request {
   return new Request("http://localhost/api/models", {
