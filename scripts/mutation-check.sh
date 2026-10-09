@@ -29,6 +29,11 @@ CONTAINMENT=lib/roots/containment.ts
 READABLE=lib/roots/readable.ts
 ROOTS_ROUTE=app/api/roots/route.ts
 
+# The Tools and the walk behind the search.
+TOOLS=lib/tools/file-tools.ts
+SCAN=lib/roots/scan.ts
+TEXT=lib/roots/text.ts
+
 BACKUP_DIR=$(mktemp -d)
 
 cp $WRITER $BACKUP_DIR/writer.ts
@@ -39,6 +44,9 @@ cp $WALK $BACKUP_DIR/walk.ts
 cp $CONTAINMENT $BACKUP_DIR/containment.ts
 cp $READABLE $BACKUP_DIR/readable.ts
 cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
+cp $TOOLS $BACKUP_DIR/tools.ts
+cp $SCAN $BACKUP_DIR/scan.ts
+cp $TEXT $BACKUP_DIR/text.ts
 
 restore() {
   cp $BACKUP_DIR/writer.ts $WRITER
@@ -49,16 +57,24 @@ restore() {
   cp $BACKUP_DIR/containment.ts $CONTAINMENT
   cp $BACKUP_DIR/readable.ts $READABLE
   cp $BACKUP_DIR/roots-route.ts $ROOTS_ROUTE
+  cp $BACKUP_DIR/tools.ts $TOOLS
+  cp $BACKUP_DIR/scan.ts $SCAN
+  cp $BACKUP_DIR/text.ts $TEXT
 }
 trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
 
 # Replaces one exact piece of text in one file, runs the tests that should
 # notice, and puts the file back.
+#
+# `$6` is optional: pass `everywhere` to replace every occurrence rather than the
+# first, for a guard that one line of code enforces in more than one place. Mutating
+# one copy there would be caught by the tests for the others and read as evidence
+# that all of them are guarded.
 run() {
-  local label="$1" file="$2" from="$3" to="$4" tests="$5"
+  local label="$1" file="$2" from="$3" to="$4" tests="$5" scope="${6:-}"
   restore
 
-  perl -0pi -e "s/\Q$from\E/$to/" $file
+  perl -0pi -e "s/\Q$from\E/$to/$scope" $file
   if grep -qF "$from" $file; then
     print "NOT APPLIED | $label | the text to replace is not in $file as written"
     return
@@ -241,6 +257,80 @@ run "M24 reads without a Root" $READABLE \
   'if (false) return OUTSIDE;' \
   'lib/roots/readable.test.ts'
 
+# The Tools' guards. The same reasoning as the ones above, and the reason they are
+# worth a mutation each is that this is the code standing between a Model and every
+# file on this machine. `run` is given `g` where one line enforces the guard in all
+# three Tools, because mutating one of the three would otherwise be caught by the
+# tests for the others and read as evidence that all three are guarded.
+
+# The Tools answer for a path containment refused, rather than stopping. Every one
+# of the three, in one mutation: the gate is one line and it is the whole of what
+# stands between a Tool and a file the reader did not share.
+run "M25 the Tools answer for a refused path" $TOOLS \
+  'if (isRefusal(allowed)) return allowed;' 'if (false) return allowed;' \
+  'lib/tools/file-tools.test.ts' g
+
+# The refusal carries a reason of containment's own, so "outside the Root" and "not
+# there" stay two answers. A Model told a path was merely missing will correct the
+# spelling and try again; one told a refusal is a failure of the machinery stops.
+run "M26 the Tools give every refusal the same reason" $TOOLS \
+  'return allowed.readable ? allowed : containmentRefusal(asked, allowed.reason);' \
+  'return allowed.readable ? allowed : containmentRefusal(asked, "outside");' \
+  'lib/tools/file-tools.test.ts'
+
+# Bytes are decoded leniently, so a binary file comes back as a string of
+# replacement characters and reaches the transcript looking like content.
+run "M27 decodes bytes that are not characters" $TEXT \
+  'new TextDecoder("utf-8", { fatal: true }).decode(bytes);' \
+  'new TextDecoder("utf-8").decode(bytes);' \
+  'lib/tools/file-tools.test.ts'
+
+# A file over the ceiling is opened anyway, so a search pulls a bundle into memory
+# to find out it was never going to look at it.
+run "M28 opens a file larger than the ceiling" $SCAN \
+  'if (size === null || size > MAX_OPEN_FILE_BYTES) return null;' \
+  'if (size === null) return null;' \
+  'lib/tools/file-tools.test.ts'
+
+# The walk reads what the developer wrote down they did not want searched, which in
+# a real project is the build output and the logs.
+run "M29 ignores a gitignore" $SCAN \
+  'if (isNeverWalked(entry.name) || ignoredHere(inForce, child)) {' \
+  'if (isNeverWalked(entry.name)) {' \
+  'lib/tools/file-tools.test.ts'
+
+# The walk opens the environment files, so a Credential goes into a transcript that
+# is saved, re-sent on every later Turn and forwarded to an Endpoint.
+run "M30 searches the environment files" $SCAN \
+  'return name === "node_modules" || name === ".git" || isCredentialFile(name);' \
+  'return name === "node_modules" || name === ".git";' \
+  'lib/tools/file-tools.test.ts'
+
+# The walk descends into a link, which is the way out of the Root: a link inside
+# the Root pointing at a folder beside it, walked as though it were a folder.
+run "M31 walks into a link" $SCAN \
+  'if (entry.isDirectory()) {' 'if (entry.isDirectory() || entry.isSymbolicLink()) {' \
+  'lib/tools/file-tools.test.ts'
+
+# The walk opens a link to a file, which is the same escape for a file rather than
+# for a folder — and the one a walk that only refuses to descend would still do,
+# because the entry is not a folder and so nothing stops it.
+run "M32 opens a link" $SCAN \
+  'if (!entry.isFile()) {' 'if (!entry.isFile() && !entry.isSymbolicLink()) {' \
+  'lib/tools/file-tools.test.ts'
+
+# A read that was cut gives no pointer to the rest, so a partial read reads as a
+# whole file and the Model answers on the belief that it saw everything.
+run "M33 truncates without saying where the rest is" $TOOLS \
+  '    continuesAtLine,' '    continuesAtLine: null,' \
+  'lib/tools/file-tools.test.ts'
+
+# A search that stopped early reports itself as complete, which is how a Model says
+# "this is nowhere in your project" about code in a file it was never shown.
+run "M34 reports a partial search as complete" $TOOLS \
+  'complete: !walk.stopped,' 'complete: true,' \
+  'lib/tools/file-tools.test.ts'
+
 restore
 print ""
 
@@ -256,7 +346,10 @@ for pair in \
   "$BACKUP_DIR/walk.ts:$WALK" \
   "$BACKUP_DIR/containment.ts:$CONTAINMENT" \
   "$BACKUP_DIR/readable.ts:$READABLE" \
-  "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE"; do
+  "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE" \
+  "$BACKUP_DIR/tools.ts:$TOOLS" \
+  "$BACKUP_DIR/scan.ts:$SCAN" \
+  "$BACKUP_DIR/text.ts:$TEXT"; do
   backup=${pair%%:*}
   original=${pair#*:}
 

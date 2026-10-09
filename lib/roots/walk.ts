@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { admitUnder, type Refusal } from "./containment";
+import { isCredentialFile } from "./scan";
 
 /**
  * Walking folders for a reader who cannot type a path.
@@ -66,10 +67,18 @@ export function walkBoundary(): string {
  * is the name in the listing, not what it points at, that a reader clicks.
  *
  * Deliberately not a rule about all dotfiles. `.github` is a folder in almost
- * every project and hiding it would be a listing that lies about what is there.
+ * every project and hiding it would be a listing that lies about what is there —
+ * and neither is `node_modules` or `.git`, which the walk over the Root skips for
+ * volume. Those are folders that really are there, and showing them is this
+ * listing's whole job: it is how a reader chooses between the folders on their
+ * machine, and a folder missing from that choice is a choice they cannot make.
+ *
+ * The rule is the walk over the Root's rather than a second copy of it, because it
+ * is one question — *is this a Credential* — and it should have one answer in the
+ * app however many places ask it.
  */
 function isSkipped(name: string): boolean {
-  return name.startsWith(".env");
+  return isCredentialFile(name);
 }
 
 function byKindThenName(a: WalkEntry, b: WalkEntry): number {
