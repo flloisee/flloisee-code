@@ -21,10 +21,17 @@ the same question is not asked on every Turn.
 - [ ] Always allow records a Grant through the route of ticket 01 and then answers, so the two
       cannot disagree
 - [ ] Answering resumes the Turn with no further typing from the reader
+- [ ] The resume sends exactly one request per answer. The SDK's completeness helper counts an
+      `approval-responded` part as finished *before* the tool has run, so an auto-resume can fire
+      while the read is still outstanding — asserted by counting the requests, since a duplicate
+      Turn looks like nothing at all from the reader's side
 - [ ] Denying resumes the Turn too — the Model is told the read was refused and continues, rather
       than the Turn ending on a refusal
 - [ ] `experimental_toolApprovalSecret` is set to a value generated once per server process, so a
       modified client cannot fabricate an approval for a read the server never asked about
+- [ ] The reader's answer is matched on the approval's own id, not on the tool call's — the two
+      sit next to each other in the stream and look alike, and using the wrong one is a silent
+      no-op that still triggers the auto-resume
 - [ ] Granted paths are listed with a control to remove each, so an old Grant does not outlive the
       reason for it — and removing one takes effect on the next Turn
 - [ ] While a request is unanswered, the composer's Send stays disabled, so a Turn cannot be

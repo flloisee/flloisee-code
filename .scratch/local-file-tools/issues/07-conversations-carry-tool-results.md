@@ -14,6 +14,11 @@ the risk is that reopening one produces a malformed history rather than a conver
 - [ ] Reopening a Saved Conversation and continuing it produces a valid history — a tool call
       with no result is malformed, and providers reject it, so this is asserted rather than
       assumed
+- [ ] An **unanswered** approval in a reopened Conversation does not poison the whole history.
+      The SDK's message conversion filters dangling tool calls by an index-dependent rule, so the
+      same unfinished Turn can throw on one save and be silently truncated on another — a later
+      user message is enough to change which branch it takes. Pinned by tests over both shapes,
+      because a bug that only appears on some saves is read as flakiness rather than as a defect
 - [ ] An approval request that was answered survives the reload as answered, and does not
       reappear as an open question
 - [ ] A Saved Conversation written before this feature, with no tool parts at all, still opens —
