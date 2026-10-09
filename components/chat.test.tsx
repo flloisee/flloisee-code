@@ -396,6 +396,68 @@ describe("a Conversation that read files", () => {
     }
     expect(responseText()).toContain("read_file");
   });
+
+  /** A read of a file outside the folder the reader shared, being asked about. */
+  const askOfSecret = (): UIMessage["parts"][number] => ({
+    type: "tool-read_file",
+    toolCallId: "call_1",
+    state: "approval-requested",
+    input: { path: "../secrets/token.txt" },
+    approval: {
+      id: "aitxt-1",
+      isAutomatic: false,
+      requestReason: "/project/../secrets/token.txt is outside the folder you shared.",
+    },
+  });
+
+  it("reopens still asking about a read the reader has not decided about", () => {
+    renderSaved([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "what is in token.txt?" }] },
+      { id: "a1", role: "assistant", parts: [askOfSecret()] },
+    ]);
+
+    // Answering for them is not this app's to do. The row is the question, and a
+    // Conversation that reopens asking is one the reader can still answer.
+    expect(document.querySelector("[data-tool]")?.getAttribute("data-tool-state")).toBe(
+      "approval-requested",
+    );
+  });
+
+  it("does not offer to rewrite a Response that is still a question", () => {
+    // There is no Response to rewrite: the Model asked, and the reader has not
+    // answered. Asking the Endpoint to do it again would resend a history holding
+    // a call with nothing behind it, which the SDK rejects outright — and it
+    // would reject it inside the stream, so the reader would be told a Model could
+    // not complete the request rather than that their Conversation is broken.
+    renderSaved([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "what is in token.txt?" }] },
+      { id: "a1", role: "assistant", parts: [askOfSecret()] },
+    ]);
+
+    expect(control(/regenerate/i)).toBeNull();
+  });
+
+  it("offers it again once the reader has answered", async () => {
+    renderSaved([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "what is in token.txt?" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            ...askOfSecret(),
+            state: "approval-responded",
+            approval: { id: "aitxt-1", approved: true },
+          } as UIMessage["parts"][number],
+        ],
+      },
+    ]);
+
+    // Answered is a different state from asked, and the control comes back with
+    // it — withholding Regenerate for good would be as wrong as offering it on a
+    // question.
+    await waitFor(() => expect(control(/regenerate/i)).not.toBeNull());
+  });
 });
 
 describe("a Turn in the Conversation", () => {

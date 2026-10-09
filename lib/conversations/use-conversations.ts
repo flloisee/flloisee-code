@@ -13,6 +13,7 @@ import {
   type SavedConversation,
 } from "@/lib/conversations/store";
 import { titleFrom } from "@/lib/conversations/title";
+import { settledTurns } from "@/lib/conversations/turns";
 
 /**
  * Which saved Conversations exist, and which one is open.
@@ -241,7 +242,10 @@ export function useConversations(backend?: ConversationBackend | null): UseConve
       const next: SavedConversation = {
         id: existing.id,
         title: nameFor(existing.title, messages),
-        messages,
+        // Settled rather than verbatim, because this save is as likely to land
+        // mid-read as at the end of a Turn and the Conversation has to be one the
+        // next Turn can carry. See `settledTurns`.
+        messages: settledTurns(messages),
         updatedAt: Date.now(),
       };
 

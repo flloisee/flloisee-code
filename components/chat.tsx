@@ -335,9 +335,24 @@ export function Chat({
   // the last message is still the user's own and there is nothing to rewrite.
   // Offering Regenerate there is what lets a transient failure be retried
   // without the message being typed a second time.
+  //
+  // **An unanswered question is the other exception**, on the same grounds as
+  // Send: there is no Response to rewrite, because the Model asked whether it may
+  // read and has not been told yet. Resending it is not merely pointless — the
+  // history would end on a Tool Call with nothing answering it, which the SDK
+  // rejects before the Endpoint is reached at all, inside the stream rather than
+  // as a status, so the reader would be told a Model could not complete the
+  // request rather than that their Conversation is broken.
+  //
+  // The same `awaitingAnswer` Send is held back by, rather than one derived from
+  // the last message alone: a Conversation with an outstanding question anywhere
+  // in it is a Conversation whose history the Endpoint will refuse, and the last
+  // message is not where that stops being true.
   const awaitingResponse = status === "error" && messages.at(-1)?.role === "user";
   const canRegenerate =
-    !inProgress && (messages.at(-1)?.role === "assistant" || awaitingResponse);
+    !inProgress &&
+    !awaitingAnswer &&
+    (messages.at(-1)?.role === "assistant" || awaitingResponse);
 
   function startFreshConversation() {
     setMessages([]);
