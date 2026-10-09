@@ -1,4 +1,5 @@
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -87,13 +88,15 @@ describe("declaring a Root outside development", () => {
   it("refuses, so no deployed build can record a folder or list one", async () => {
     setEnvVar("NODE_ENV", "production");
 
-    // Both halves: the route that names folders and the route that writes one.
-    // A build that could list but not write would still be a build that hands
-    // its caller a map of the machine.
+    // All three halves: the route that names folders, the one that turns a name
+    // into one, and the one that writes it. A build that could search a folder
+    // but not record it would still be a build that hands its caller a map of
+    // the machine.
     const listed = await rootsRequest({ action: "find" });
+    const located = await rootsRequest({ action: "locate", name: "my-project" });
     const declared = await rootsRequest({ action: "declare", path: here });
 
-    expect([listed.status, declared.status]).toEqual([404, 404]);
+    expect([listed.status, located.status, declared.status]).toEqual([404, 404, 404]);
     expect(await answerOf(declared)).toHaveProperty("error");
     // Nothing was written, so refusing has left the machine as it was found.
     expect(await readRootFile()).toBeNull();
@@ -175,6 +178,87 @@ describe("the folder the walk offers", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+});
+
+/**
+ * Turning a folder name into a folder, on the action that does it.
+ *
+ * The reader's operating system gives the browser a *name* — `File.path` was
+ * removed in Chrome v61 and no picker has replaced it — so this route is the
+ * thing that decides where that name actually is. Which makes it the one action
+ * here whose answer the reader has to be shown rather than acted on, and the
+ * reason it hands back every candidate instead of picking one.
+ */
+describe("finding the folder a reader picked", () => {
+  it("answers with where a folder of that name really is, and that it looked everywhere", async () => {
+    await mkdir(path.join(here, "my-project", "src"), { recursive: true });
+
+    const response = await rootsRequest({ action: "locate", name: "src" });
+
+    // The whole path, resolved: a name on its own cannot be acted on, and this
+    // is the answer to "which folder did you mean".
+    expect(response.status).toBe(200);
+    expect(await answerOf(response)).toEqual({
+      matches: [{ path: path.join(here, "my-project", "src") }],
+      complete: true,
+    });
+  });
+
+  it("refuses a name carrying a path separator, rather than searching along one", async () => {
+    await mkdir(path.join(here, "my-project", "src"), { recursive: true });
+
+    const response = await rootsRequest({ action: "locate", name: "my-project/src" });
+
+    // A name is a name. A caller that could send a path would be sending one
+    // with the authority this feature withholds from the browser everywhere
+    // else — the route that declares a Root admits every path it is given, and
+    // this is the door that would have let a caller walk up to it uninvited.
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("name") });
+  });
+
+  it("refuses a name that is a way of naming a folder above the search", async () => {
+    for (const name of ["..", "."]) {
+      const response = await rootsRequest({ action: "locate", name });
+
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("refuses a name carrying a null byte, rather than letting it reach the disk", async () => {
+    const response = await rootsRequest({
+      action: "locate",
+      name: `my-project${String.fromCharCode(0)}`,
+    });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("null byte") });
+  });
+
+  it("refuses a name too long to be a folder's, rather than searching for nothing", async () => {
+    const response = await rootsRequest({ action: "locate", name: "p".repeat(256) });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("does not name a folder outside the reader's home folder, whatever carries its name", async () => {
+    // `here` is the home folder these tests run in, so "outside" has to be a
+    // directory of its own rather than a sibling inside the project.
+    const outside = await mkdtemp(path.join(tmpdir(), "roots-outside-"));
+    const onAnotherVolume = path.join(outside, "Projects");
+    await mkdir(onAnotherVolume, { recursive: true });
+    await symlink(onAnotherVolume, path.join(here, "Projects"));
+
+    // The reader picked this folder in a dialog that could see every volume on
+    // the machine. The search cannot reach the one they meant, and the answer it
+    // can honestly give is "nothing here" — which sends them to the walk rather
+    // than to a folder they did not pick.
+    const response = await rootsRequest({ action: "locate", name: "Projects" });
+
+    expect(await answerOf(response)).toEqual({ matches: [], complete: true });
+
+    await rm(outside, { recursive: true, force: true });
   });
 });
 

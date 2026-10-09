@@ -29,6 +29,11 @@ CONTAINMENT=lib/roots/containment.ts
 READABLE=lib/roots/readable.ts
 ROOTS_ROUTE=app/api/roots/route.ts
 
+# The name a folder dialog gives, turned into somewhere on this machine. Guarded
+# on the same reasoning as the walk above it: this is the other way in, and it
+# is a search over the reader's home folder that a caller aims by naming a thing.
+LOCATE=lib/roots/locate.ts
+
 # The Tools and the walk behind the search.
 TOOLS=lib/tools/file-tools.ts
 SCAN=lib/roots/scan.ts
@@ -57,6 +62,7 @@ cp $WALK $BACKUP_DIR/walk.ts
 cp $CONTAINMENT $BACKUP_DIR/containment.ts
 cp $READABLE $BACKUP_DIR/readable.ts
 cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
+cp $LOCATE $BACKUP_DIR/locate.ts
 cp $TOOLS $BACKUP_DIR/tools.ts
 cp $SCAN $BACKUP_DIR/scan.ts
 cp $TEXT $BACKUP_DIR/text.ts
@@ -74,6 +80,7 @@ restore() {
   cp $BACKUP_DIR/containment.ts $CONTAINMENT
   cp $BACKUP_DIR/readable.ts $READABLE
   cp $BACKUP_DIR/roots-route.ts $ROOTS_ROUTE
+  cp $BACKUP_DIR/locate.ts $LOCATE
   cp $BACKUP_DIR/tools.ts $TOOLS
   cp $BACKUP_DIR/scan.ts $SCAN
   cp $BACKUP_DIR/text.ts $TEXT
@@ -438,6 +445,39 @@ run "M41 the recogniser finds no paths" $NAMED_PATH \
   '  if (token === "") return null;' '  if (token !== "") return null;' \
   'lib/roots/named-path.test.ts app/api/chat/named-paths.test.ts components/named-paths.test.tsx'
 
+# The other way into a Root. No browser folder dialog can return a path — Chrome
+# removed `File.path` in v61 — so the reader's own machine dialog hands the app a
+# *name* and the server works out where it really is. Both guards below are the
+# feature rather than checks on it: without the admission a search over the
+# reader's home folder answers about places outside it, and without the refusal a
+# caller sends a path in the spelling of a name and gets it looked up.
+
+# A candidate the search found, offered without ever being admitted. The entry is
+# a link pointing out of the home folder — a real folder, and one the reader may
+# well have picked — and offering it hands back a path the walk would refuse a
+# moment later, on a search whose whole purpose is to find folders *inside* the
+# boundary. Distinct from M12, which is the walk admitting a path a caller named;
+# this one is the search admitting a path it found itself.
+run "M42 offers a folder the boundary refused" $LOCATE \
+  'if (!candidate.admitted) continue;' 'if (false) continue;' \
+  'lib/roots/locate.test.ts app/api/roots/route.test.ts'
+
+# A name carrying a separator is searched for instead of refused, which is a path
+# arriving with the authority this feature deliberately never gave the browser:
+# `../../.ssh` is not a folder's name, and the search would go looking for a
+# folder called that.
+#
+# Aimed at the tail of `refusesAsName` rather than at the whole of it. The line
+# reads `name.includes("/") || name.includes("\\") || name.includes("\0")`, and
+# the first term cannot be written here at all: a `/` inside the quoted string
+# ends the pattern early, so an entry aimed at it reports NOT APPLIED and the
+# guard reads as covered while nothing tests it. The tail is the same guard with
+# the one separator that cannot be spelled here, and it is what refuses the
+# backslash and the null byte — both of which `locate.test.ts` asserts on.
+run "M43 searches for a name carrying a separator" $LOCATE \
+  'name.includes("\\") || name.includes("\0")' 'false' \
+  'lib/roots/locate.test.ts app/api/roots/route.test.ts'
+
 restore
 print ""
 
@@ -454,6 +494,7 @@ for pair in \
   "$BACKUP_DIR/containment.ts:$CONTAINMENT" \
   "$BACKUP_DIR/readable.ts:$READABLE" \
   "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE" \
+  "$BACKUP_DIR/locate.ts:$LOCATE" \
   "$BACKUP_DIR/tools.ts:$TOOLS" \
   "$BACKUP_DIR/scan.ts:$SCAN" \
   "$BACKUP_DIR/text.ts:$TEXT" \

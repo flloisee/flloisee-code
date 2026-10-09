@@ -32,6 +32,25 @@ export type RootListing =
   | { status: "listed"; path: string; parent: string | null; entries: WalkEntry[] }
   | { status: "refused"; message: string };
 
+const locatedSchema = z
+  .object({
+    matches: z.array(z.object({ path: z.string() })),
+    complete: z.boolean(),
+  })
+  .strict();
+
+/**
+ * Where a folder name the reader picked actually is.
+ *
+ * `complete` is a claim rather than a detail, and it travels with the list for
+ * the reason it does on the wire: one folder and `complete: false` is not the
+ * same answer as one folder that is the only one, and a reader who cannot tell
+ * those apart is being shown a certainty the app does not have.
+ */
+export type FolderLocation =
+  | { status: "located"; matches: { path: string }[]; complete: boolean }
+  | { status: "refused"; message: string };
+
 export type RootAnswer =
   /** The folder is recorded, and this is where the server says it is. */
   | { status: "declared"; root: string; grants: string[] }
@@ -114,6 +133,37 @@ export function readListing({ status, body }: { status: number; body: unknown })
 /** Asks for the folder to walk into. Without a path, it starts at the reader's home. */
 export async function requestWalk(path?: string): Promise<RootListing> {
   return readListing(await post({ action: "find", ...(path ? { path } : {}) }));
+}
+
+/**
+ * Asks where a folder of this name really is.
+ *
+ * The name is the whole of what the browser was given: the dialog was the
+ * reader's operating system's, and no browser folder picker can return a path
+ * (`File.path` was removed in Chrome v61 and nothing replaced it). So this sends
+ * a name and gets back folders — which the reader is shown before any of them is
+ * recorded, because two folders on a developer's machine can easily be called
+ * the same thing and only they know which they picked.
+ *
+ * Nothing here resolves, normalises or checks the name either. Same rule as the
+ * path below it: the browser cannot resolve anything, and the string the reader
+ * chose is the string the server should be asked about verbatim.
+ */
+export async function locateFolder(name: string): Promise<FolderLocation> {
+  const { status, body } = await post({ action: "locate", name });
+
+  if (status !== 200) return refusalFrom(status, body);
+
+  const parsed = locatedSchema.safeParse(body);
+  // An answer in a form this file cannot read is a refusal rather than an empty
+  // answer: "no folder is called that" and "the route said something else" are
+  // opposite things for a reader who has just told the app what they want.
+  if (!parsed.success) {
+    return { status: "refused", message: "The app's Reading Root route answered in an unexpected form." };
+  }
+
+  const { matches, complete } = parsed.data;
+  return { status: "located", matches, complete };
 }
 
 /** Reads one answer about the Root itself off the route's answer. */

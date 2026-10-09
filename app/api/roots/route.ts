@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { admitUnder } from "@/lib/roots/containment";
 import { decide } from "@/lib/roots/named-decision";
+import { locateFolder, type LocateRefusal } from "@/lib/roots/locate";
 import { resolveAgainstRoot } from "@/lib/roots/readable";
 import {
   declareRoot,
@@ -19,7 +20,7 @@ import { listDirectory, walkBoundary, type WalkRefusal } from "@/lib/roots/walk"
  * answer survives a restart — and answering, once or always, when they name a file
  * that is not in it.
  *
- * Three capabilities in one route, and each is bounded rather than trusted. The
+ * Four capabilities in one route, and each is bounded rather than trusted. The
  * route lists folders, so a caller who could name any path would turn it into a
  * map of the developer's machine; it writes a file recording a folder, which is a
  * capability a deployed build must not have at all — the same reasoning as Key
@@ -35,6 +36,16 @@ import { listDirectory, walkBoundary, type WalkRefusal } from "@/lib/roots/walk"
  * keeping the map — is a second source of truth to invalidate, and it buys
  * nothing while the walk is bounded.
  *
+ * **`locate` is the other half of that, and it is the way in.** No browser folder
+ * picker can return an absolute path: Chrome removed `File.path` in v61 and
+ * nothing has put it back. So the reader's own operating-system dialog gives the
+ * browser a *name*, and this action is what turns that name into somewhere — a
+ * search of the same bounded home folder, whose every candidate goes through the
+ * same admission. It answers with the paths rather than choosing between them,
+ * because the choice is the reader's: a `Projects` on a volume this app cannot
+ * reach and a `Projects` in their home folder are the same string, and only the
+ * reader knows which they picked. See `lib/roots/locate`.
+ *
  * POST and nothing else, for the reason the Key Entry route gives: under Cache
  * Components a GET Route Handler follows the prerender model of a page, and a
  * prerendered listing here would answer from a moment the developer never asked
@@ -44,6 +55,9 @@ import { listDirectory, walkBoundary, type WalkRefusal } from "@/lib/roots/walk"
 const rootsRequestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("read") }).strict(),
   z.object({ action: z.literal("find"), path: z.string().min(1).optional() }).strict(),
+  // A name, never a path. What the route does with it — and refuses — is
+  // `locateFolder`'s, so the shape here only insists there is one.
+  z.object({ action: z.literal("locate"), name: z.string().min(1) }).strict(),
   z.object({ action: z.literal("declare"), path: z.string().min(1) }).strict(),
   z.object({ action: z.literal("forget") }).strict(),
   // The two a Grant needs. The path is what the Model asked for and nothing
@@ -61,8 +75,8 @@ const rootsRequestSchema = z.discriminatedUnion("action", [
 ]);
 
 const MALFORMED_REQUEST =
-  'Naming a Root takes one of "read", "find", "declare", "forget", "grant", "revoke", "allow", ' +
-  'or "deny" — as { "action": "find", "path": ... } and so on.';
+  'Naming a Root takes one of "read", "find", "locate", "declare", "forget", "grant", "revoke", ' +
+  '"allow", or "deny" — as { "action": "find", "path": ... } and so on.';
 
 /**
  * What each refusal says.
@@ -72,8 +86,12 @@ const MALFORMED_REQUEST =
  * echoing it would disclose nothing — but the useful half of a refusal is what
  * to try instead, and a message that leads with the offending string reads as an
  * error report rather than as an answer.
+ *
+ * The one refusal here that is not about a path is about the *shape* of a string
+ * that was going to be a path, which is the same question as `unusable` below and
+ * so belongs beside it rather than in a map of its own.
  */
-const REFUSED: Record<WalkRefusal, string> = {
+const REFUSED: Record<WalkRefusal | LocateRefusal, string> = {
   outside:
     "The walk only goes through your home folder, and that is not inside it. " +
     "Choose a folder inside your home folder, and the Model will read that.",
@@ -86,16 +104,21 @@ const REFUSED: Record<WalkRefusal, string> = {
   "not-a-directory":
     "A Root has to be a folder that is there now, and that one is not a folder. " +
     "Choose a folder from the listing rather than a file inside one.",
+  "not-a-name":
+    "A folder can only be looked for by its name, and that is not one — it may " +
+    "carry a path separator or a null byte, or be too long to be a folder's " +
+    "name at all. Choose the folder again, or walk to it from your home folder.",
 };
 
 /**
- * The two refusals that are about a Grant rather than about the walk.
+ * The two refusals that are about a Grant rather than about the walk or a name.
  *
- * Not refusals of the walk: both are answers to a question the walk is never
- * asked, and folding them into `REFUSED` would have that map claiming to describe
- * every reason this route has — which is how a map stops being worth reading.
+ * Not refusals of either: these are answers to a question neither is ever asked,
+ * and folding them in would have a map claiming to describe the shape of a
+ * string as well as the boundary of a path — which is how a map stops being
+ * worth reading.
  */
-const GRANT_REFUSED: Record<Exclude<Refusal, WalkRefusal>, string> = {
+const GRANT_REFUSED: Record<Exclude<Refusal, WalkRefusal | LocateRefusal>, string> = {
   "no-root":
     "No folder has been chosen for the Model to read, so there is nothing to allow " +
     "anything outside of. Choose a folder first.",
@@ -104,16 +127,16 @@ const GRANT_REFUSED: Record<Exclude<Refusal, WalkRefusal>, string> = {
     "asking — there is nothing to remember about it and nothing to decide.",
 };
 
-/** Why this route will not do what it was asked: the walk's reasons, or a Grant's. */
-type Refusal = WalkRefusal | "no-root" | "already-decided";
+/** Why this route will not do what it was asked: the walk's, a name's, or a Grant's. */
+type Refusal = WalkRefusal | LocateRefusal | "no-root" | "already-decided";
 
 function refused(reason: Refusal): Response {
   return Response.json(
     {
       error:
         reason in REFUSED
-          ? REFUSED[reason as WalkRefusal]
-          : GRANT_REFUSED[reason as Exclude<Refusal, WalkRefusal>],
+          ? REFUSED[reason as WalkRefusal | LocateRefusal]
+          : GRANT_REFUSED[reason as Exclude<Refusal, WalkRefusal | LocateRefusal>],
     },
     { status: 400 },
   );
@@ -183,6 +206,19 @@ export async function POST(request: Request) {
       parent: listing.parent,
       entries: listing.entries,
     });
+  }
+
+  if (action === "locate") {
+    const located = await locateFolder(parsed.data.name);
+
+    if (!located.ok) return refused(located.reason);
+
+    // Built rather than spread, for the reason `find`'s answer is built: these
+    // are the two fields the reader's browser is written against, and the
+    // search's own marker for which half of its answer this is means nothing to
+    // a caller that never sees one. `complete` travels with the list because a
+    // list of one is not the same claim as a list of one that is the only one.
+    return Response.json({ matches: located.matches, complete: located.complete });
   }
 
   // Declaring. The path is admitted and checked to be a folder before anything

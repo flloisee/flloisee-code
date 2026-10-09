@@ -100,13 +100,17 @@ What that route can be reached to do is worth stating exactly, because it is nar
 may sound and wider than "it only lists folders". In development, a caller can name **the
 reader's own home directory or any path under it** — that is the walk's edge, and every path
 it is given, the way back up included, is put through it before the disk is touched — and be
-handed back the names, the kinds and the real paths of what is in the folder it named. That
-is deliberately more than it sounds like. The alternative — opaque handles for entries the
-server itself offered, so a caller can only ever walk where it has already been — was
-considered and rejected as a second source of truth with a lifetime to invalidate across a
-dev-server reload, for a route that is development-only and can write nothing but a Root.
-What it cannot do is read a file's contents, write anywhere but the one Root file, or do
-either outside development.
+handed back the names, the kinds and the real paths of what is in the folder it named. It can
+also be given **a name rather than a path**, and answer with the folders inside the home
+folder carrying it, in full and without choosing between them. That last one is how you pick
+a Root at all: no browser folder dialog can return a path, since Chrome removed `File.path`
+in v61 and nothing has replaced it, so your own machine's dialog hands the app the folder's
+**name** and this route is what works out where that name really is. The alternative — opaque
+handles for entries the server itself offered, so a caller can only ever walk where it has
+already been — was considered and rejected as a second source of truth with a lifetime to
+invalidate across a dev-server reload, for a route that is development-only and can write
+nothing but a Root. What it cannot do is read a file's contents, write anywhere but the one
+Root file, or do either outside development.
 
 Both write atomically and both are gitignored.
 
@@ -151,7 +155,7 @@ than a visible failure.
 | `POST /api/endpoints` | The Registry, with each Endpoint's configured state. |
 | `POST /api/models` | Model Discovery against one Endpoint. |
 | `POST /api/keys` | Key Entry. Development only. |
-| `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, and the reader's own answers. Development only. |
+| `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, the reader's own answers, and where a folder of a given name really is. Development only. |
 | `POST /api/files` | Naming a file from the Root: the `@` menu, and a verdict on a path the reader wrote. |
 
 Chat and discovery are deliberately separate seams: discovery fails with a bad address or a
@@ -170,6 +174,14 @@ button to stop allowing it. A path is taken as relative to the Root unless you w
 in full. Searching is a walk, and the walk skips `.env*`, `.git` and `node_modules` and
 honours your `.gitignore`; listing one folder shows you everything in it, which is how you
 find the folder worth searching.
+
+You choose the Root in Settings, from your own computer's folder dialog — the native one where
+the browser has it, a folder input where it does not — and what that dialog gives the app is
+the folder's **name**, never a path. The app then looks for folders with that name inside your
+home folder and shows you each one's full path before anything is recorded, because two folders
+on one machine can easily share a name and a `Projects` on a disk it cannot reach would
+otherwise be answered with the `Projects` in your home folder, silently. You can walk to a
+folder instead, from your home folder down, if a name is not enough.
 
 You can also name a file yourself. Typing `@` in the composer offers what is in the Root,
 matched against the path as well as the name, and pasting a path into a message asks about it
@@ -279,7 +291,7 @@ lib/
   selection/                          The Endpoint and Model kept between visits
   theme.ts                            The Theme, and the Preference Store
   env.ts                              The only place a Credential is written
-  roots/                              The Root and its Grants, containment, the two walks
+  roots/                              The Root and its Grants, containment, the two walks and the name search
   tools/                              The three Tools, the approval policy, what they refuse
   chat/                               Failures as readable text; the files a Turn names
 scripts/                              Catalog refresh, mutation check
