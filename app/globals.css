@@ -296,6 +296,20 @@ textarea.hm-field {
   min-height: var(--size-control);
   resize: none;
   line-height: 1.5;
+  /* Vertical padding that puts one line in the middle of the control's height.
+   *
+   * A textarea draws its text from the top whatever the box is doing — `flex` on a
+   * textarea centres nothing, because the text is not its child — so the field's
+   * own 4px left a 19.5px line sitting at the top of a 34px content box. That reads
+   * as a message written slightly high rather than as a box with a line in it, and
+   * it is most obvious when the field is empty, where the placeholder is the only
+   * thing in it. The 2px is the two borders.
+   *
+   * Padding rather than line-height, because the composer grows: one row of 1.5
+   * filling the box would leave every further row 34px from the last. Padding here
+   * moves only the first line, and every row after it is spaced by the line-height
+   * as before. */
+  padding-block: calc((var(--size-control) - 1.5em - 2px) / 2);
 }
 
 /* A native select styled as a field. Left native on purpose — the picker is

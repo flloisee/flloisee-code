@@ -17,6 +17,7 @@ import { useFileMenu } from "./file-menu";
 import { Markdown } from "./markdown";
 import { useNamedFiles } from "./named-files";
 import { ToolCall } from "./tool-call";
+import { useRootReadout } from "@/lib/roots/root-readout";
 
 export type ChatProps = {
   /** The Endpoint in use. Held by the caller, so it outlives this component. */
@@ -290,6 +291,12 @@ export function Chat({
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
+  // Which folder is the Root, for the composer to name above the field. Asked here
+  // because this is where it is drawn, and read again when the picker announces a
+  // change — a composer left naming the last folder declared would be claiming a
+  // boundary that is no longer the one being read.
+  const root = useRootReadout();
+
   // Saved as the Turns change, so a reload reopens what was in front of the
   // reader.
   //
@@ -414,12 +421,43 @@ export function Chat({
               line rather than a screen. **The same cap is on the composer row
               and on the error line below** — the field and the Turns have to end
               in the same place, or Send stops lining up with the reader's own
-              Turn above it. Change all three together. */}
-          <div className="mx-auto max-w-6xl space-y-4">
+              Turn above it. Change all three together.
+
+              `flex min-h-full flex-col` is what lets the greeting sit in the
+              middle of the space the Turns would fill rather than pinned to the
+              top of it. It is a column at least as tall as the window, so the
+              empty Conversation is centred by `my-auto` on its greeting — auto
+              margins rather than `justify-content: center` on the scroll box,
+              because a centred flex container overflows at *both* ends and the
+              top of it cannot be scrolled back to. With auto margins the surplus
+              collapses to nothing instead, and a Conversation that outgrows the
+              window scrolls from the first Turn. Nothing else in the column
+              carries a vertical margin, so the Turns are laid out exactly as
+              they were before. */}
+          <div className="mx-auto flex min-h-full max-w-6xl flex-col space-y-4">
+            {/* An empty Conversation is one greeting above one instruction, and the
+                greeting is the larger of the two because it is the only line the
+                reader has been shown before any of their own — at the muted size of
+                the instruction it read as a system note rather than as anything
+                said to them.
+
+                Big within the scale rather than past it: `text-lg` is the top of the
+                five sizes in `tokens.css` and the size the page's own heading is set
+                at, so the display face and the weight carry the rest. A sixth size
+                here would be the one place the type scale stopped being a rule.
+
+                `data-greeting` is a structural hook for the tests, the same bargain
+                as `data-turn`: it names this block so a test can find the greeting
+                without asserting a size or a colour. */}
             {messages.length === 0 && (
-              <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
-                Send a message to begin a Conversation with {endpointName}.
-              </p>
+              <div data-greeting className="mx-auto my-auto max-w-[52ch] text-center">
+                <p className="font-display text-lg font-semibold tracking-tight text-ink">
+                  Hello.
+                </p>
+                <p className="mt-2 text-sm text-muted">
+                  Send a message to begin a Conversation with {endpointName}.
+                </p>
+              </div>
             )}
             {messages.map((message) => (
               <Turn key={message.id} message={message} />
@@ -452,28 +490,73 @@ export function Chat({
           screen. */}
       <div className="border-t border-rule bg-paper px-4 py-3 sm:px-6">
         <div className="relative mx-auto flex w-full max-w-6xl flex-wrap items-end gap-2">
-          {/* What a message written here will be sent to, said where it is written.
+          {/* The two things a message written here will be answered by, said where it
+              is written, on one line at opposite ends.
+
+              What a message goes to, and what it is allowed to read, are halves of
+              one question — who is answering, and from where. They are read together
+              before a message is written and never again afterwards, so they share a
+              line: the Endpoint and Model at the left, the Root at the right, each
+              truncated with the whole of it one hover away.
+
               The Endpoint and Model are chosen in Settings and a Conversation runs
               long past the choosing, so the pair the reader is actually talking to
               sits beside the control that will carry it — otherwise the only place
               it is written down is a dialog they would have to reopen to read it.
               Kept to one quiet line, because it is a readout rather than a control:
               the Model is in the mono register as elsewhere, being a machine string
-              read character by character, and the pair is truncated with the whole
-              of it one hover away. */}
-          <p
-            // `data-in-use` names the readout for the tests, so an assertion can
-            // read what a message would be sent to without going by the words it
-            // happens to be made of.
-            data-in-use
-            title={[endpointName, modelId].filter(Boolean).join(" · ")}
-            className="basis-full truncate text-xs text-muted"
-          >
-            {endpointName}
-            {/* Absent rather than trailing when no Model is resolved, so the line
-                reads as what it knows rather than as a separator before nothing. */}
-            {modelId && <span className="font-mono"> · {modelId}</span>}
-          </p>
+              read character by character.
+
+              `min-w-0` on both halves, which is what lets either be truncated at
+              all: without it a flex child keeps its content's width, the long one
+              pushes the short one off the end of the line, and the line the two
+              share becomes a line where only the first thing is readable. */}
+          <div className="order-none flex basis-full items-baseline justify-between gap-4">
+            <p
+              // `data-in-use` names the readout for the tests, so an assertion can
+              // read what a message would be sent to without going by the words it
+              // happens to be made of.
+              data-in-use
+              title={[endpointName, modelId].filter(Boolean).join(" · ")}
+              className="min-w-0 truncate text-xs text-muted"
+            >
+              {endpointName}
+              {/* Absent rather than trailing when no Model is resolved, so the line
+                  reads as what it knows rather than as a separator before nothing. */}
+              {modelId && <span className="font-mono"> · {modelId}</span>}
+            </p>
+
+            {/* Which folder is the Root, at the other end of the same line.
+                Every message is answered from somewhere, and until this existed
+                nothing on screen said where: the Root lives behind the Settings
+                dialog, so a reader who had declared one had no way to tell whether
+                the Response in front of them came from inside it.
+
+                **It is drawn, not offered.** Nothing here opens Settings, and there
+                is no control to click: a readout that could be mistaken for one
+                would make the reader hunt for a control that is not there, and the
+                folder is changed where it is declared rather than from a composer
+                that has no business changing it.
+
+                `truncate` is the floor under a floor rather than the cut itself: the
+                path is already cut to `MAX_ROOT_CHARS` in `root-readout`, and this
+                only catches a window too narrow to draw even that. */}
+            {root && (
+              <p
+                // `data-root` names the readout for the tests, on the reasoning
+                // `data-in-use` records: an assertion should not be pinned to the
+                // exact words the Root is named with, or to the cut that keeps it on
+                // one line.
+                data-root
+                title={root.title}
+                className={`min-w-0 shrink truncate text-right text-xs text-muted ${
+                  root.machine ? "font-mono" : ""
+                }`}
+              >
+                {root.text}
+              </p>
+            )}
+          </div>
 
           {/* The menu, which is a popup over the composer and never a dialog
               beside it. It is rendered here so it sits inside the box the popup is
@@ -612,15 +695,16 @@ export function Chat({
               be centred: it grows into whatever the field and the buttons leave,
               sharing it with the field rather than squeezing it — which on a narrow
               window means both are smaller and the sentence wraps to two lines. The
-              three controls are each given an order one higher at `sm` than below
-              it, so the tip can take the place Send holds on a narrow window and
-              sit ahead of it on a wide one. Below `sm` there is no such space, so
-              it keeps its own full-width row under the buttons, where it is
-              centred and legible.
+              controls are each given an order one higher at `sm` than below it, so
+              the tip can take the place Send holds on a narrow window and sit ahead
+              of it on a wide one. Below `sm` there is no such space, so it keeps its
+              own full-width row under the buttons, where it is centred and legible.
 
               Said about "the folder you chose" rather than naming the folder, which
-              the browser is not told — and it is not a promise the app cannot keep
-              when no folder has been chosen: the menu says so in its own words the
+              the tip has no room for: the folder's own path is named at the other
+              end of the line above the field, where there is a whole row's worth of
+              budget for it. The sentence is a promise the app cannot keep when no
+              folder has been chosen, and the menu says so in its own words the
               moment the reader types the `@`, which is the better moment for it
               anyway, since that is where they are looking. */}
           {!namedWithAt && (

@@ -3,9 +3,10 @@ import { z } from "zod";
 import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
 
 /**
- * Asking what is in the Root, and having a verdict on a path the reader typed.
+ * Asking what is in the Root, having a verdict on a path the reader typed, and
+ * asking which folder the Root is.
  *
- * Two requests and four answers, kept distinct rather than collapsed into "some
+ * Three requests and five answers, kept distinct rather than collapsed into "some
  * files" or "no". The distinction that matters most is the first one: a folder
  * that was never chosen and a folder with nothing matching in it look identical
  * on the wire as an empty list, and they are opposite things for the reader — one
@@ -45,6 +46,17 @@ const resolvedSchema = z
   })
   .strict();
 
+const rootSchema = z
+  .object({
+    root: z.string().nullable(),
+    // Defaulted rather than required, for the reason the Root route defaults its
+    // Grants: a server answering truthfully about a folder whose record is
+    // unreadable may say nothing about it, and a reader should not be handed a
+    // broken-route sentence for a folder this app simply cannot read.
+    malformed: z.boolean().default(false),
+  })
+  .strict();
+
 /** One entry the menu may offer, named from the Root. */
 export type Offered = z.infer<typeof offeredSchema>;
 
@@ -65,6 +77,19 @@ export type ResolvedFile =
       size: number | null;
     }
   | { status: "refused"; message: string; reason: Verdict };
+
+/**
+ * Which folder is the Root, as the route holds it.
+ *
+ * Three answers rather than one, because "none declared" and "declared, but the
+ * file recording it cannot be read" are the same `null` on the wire and opposite
+ * facts for a reader: the first is a decision they have not made, the second a
+ * file they have to repair. The route sends both and this keeps them apart.
+ */
+export type RootPath =
+  | { status: "declared"; root: string }
+  | { status: "no-root"; malformed: boolean }
+  | { status: "refused"; message: string };
 
 /**
  * What kind of refusal this is, and the one kind that puts a question to the
@@ -171,4 +196,28 @@ export async function resolvePath(asked: string): Promise<ResolvedFile> {
   if (!parsed.success) return { status: "refused", message: UNREADABLE_ANSWER, reason: "unknown" };
 
   return { status: "resolved", ...parsed.data };
+}
+
+/**
+ * Which folder is the Root right now.
+ *
+ * The one answer on this route that names nothing and is asked about nothing: the
+ * composer shows it so a reader can see the boundary their Turn is being answered
+ * inside. It goes through the same `post` as the rest rather than a second way of
+ * reaching the route, so there is one request shape and one failure shape here.
+ */
+export async function readRootPath(): Promise<RootPath> {
+  const { status, body } = await post({ action: "root" });
+
+  if (status !== 200) return refusalFrom(status, body);
+
+  const parsed = rootSchema.safeParse(body);
+  // A shape this file cannot read is a refusal rather than an empty Root, for the
+  // reason the answers above give: "there is no folder" and "the app answered in a
+  // form I cannot read" would otherwise be the same silence to a reader who has
+  // declared one.
+  if (!parsed.success) return { status: "refused", message: UNREADABLE_ANSWER };
+
+  const { root, malformed } = parsed.data;
+  return root === null ? { status: "no-root", malformed } : { status: "declared", root };
 }

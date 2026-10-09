@@ -187,6 +187,54 @@ describe(OFFERED, () => {
   });
 });
 
+const THE_ROOT_ITSELF = "names which folder is the Root, for the composer to draw";
+
+describe(THE_ROOT_ITSELF, () => {
+  it("answers with the folder the reader declared, and its whole path", async () => {
+    await declare(inRoot);
+
+    const response = await filesRequest({ action: "root" });
+    const body = await answerOf(response);
+
+    // The composer says where a Response is being read from, and nothing else in
+    // the interface names it. A Root-relative answer would be a sentence the
+    // reader could not place, so this one hands over the path itself — which is
+    // safe for the reason the route gives: the caller names nothing, so there is
+    // nothing here to aim, and one folder is not a listing.
+    expect(response.status).toBe(200);
+    expect(body.root).toBe(inRoot);
+    expect(body.malformed).toBe(false);
+  });
+
+  it("answers honestly about no folder at all", async () => {
+    const body = await answerOf(await filesRequest({ action: "root" }));
+
+    expect(body.root).toBeNull();
+    expect(body.malformed).toBe(false);
+  });
+
+  it("tells a Root file it cannot read apart from a Root that was never chosen", async () => {
+    // The composer draws these two differently, and it cannot: they arrive as the
+    // same `null`, and one is a decision the reader has not made while the other
+    // is a file they have to repair.
+    await writeFile(rootFile(), "this is not json");
+
+    const body = await answerOf(await filesRequest({ action: "root" }));
+
+    expect(body.root).toBeNull();
+    expect(body.malformed).toBe(true);
+  });
+
+  it("takes nothing to answer with, so there is nothing here to aim", async () => {
+    // The one action on this route with no field at all. Anything a caller could
+    // add is a field this route does not know, and a route that named a path would
+    // be the primitive the whole of `/api/roots` is bounded to refuse.
+    const response = await filesRequest({ action: "root", path: "../" });
+
+    expect(response.status).toBe(400);
+  });
+});
+
 const THE_CEILINGS = "refuses rather than answering half an answer";
 
 describe(THE_CEILINGS, () => {
@@ -273,6 +321,7 @@ describe(REFUSES, () => {
     expect(response.status).toBe(400);
     expect(body.error).toContain("find");
     expect(body.error).toContain("resolve");
+    expect(body.error).toContain("root");
   });
 
   it("refuses a field it does not understand rather than silently ignoring it", async () => {

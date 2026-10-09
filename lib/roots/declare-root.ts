@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
+import { announceRootChanged } from "@/lib/roots/root-readout";
 
 /**
  * Naming a Reading Root, from the interface.
@@ -218,11 +219,20 @@ export async function readRoot(): Promise<RootAnswer> {
 }
 
 export async function declareRoot(folder: string): Promise<RootAnswer> {
-  return readRootAnswer(await post({ action: "declare", path: folder }));
+  const answer = readRootAnswer(await post({ action: "declare", path: folder }));
+  // Announced only on an answer that declares one: a refusal leaves the folder
+  // exactly as it was, and announcing that nothing changed would ask the composer
+  // to re-read a Root it already has.
+  if (answer.status === "declared") announceRootChanged();
+  return answer;
 }
 
 export async function forgetRoot(): Promise<RootAnswer> {
-  return readRootAnswer(await post({ action: "forget" }));
+  const answer = readRootAnswer(await post({ action: "forget" }));
+  // The other end of the same rule. A refusal here is the file being unreadable or
+  // the route refusing, and in both cases there is still a Root being read.
+  if (answer.status !== "refused") announceRootChanged();
+  return answer;
 }
 
 /**

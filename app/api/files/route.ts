@@ -32,6 +32,23 @@ import { walkFiles } from "@/lib/roots/scan";
  * so it answers with the same Root-relative form and the containment check stays
  * the only thing deciding what may be read.
  *
+ * **`root` is the other exception, and it is a bigger one.** The composer shows
+ * which folder the Model may read, which is a question a reader cannot answer by
+ * looking at the Conversation: nothing else on screen names the Root at all, so a
+ * reader who has declared one has no way to tell whether the answer they are
+ * getting is coming from inside it. It cannot be worded round — a readout that
+ * said "a folder" would be a readout nobody could believe — so this action hands
+ * over the Root itself, once, to the reader's own browser.
+ *
+ * What makes that safe is the shape of the question rather than who asks it: the
+ * caller names nothing at all, so there is nothing to aim. It answers with one
+ * folder the reader declared themselves, on their own machine, and there is no
+ * action beside it that lists, walks, or takes a path — so an answer cannot be
+ * turned into a map the way a listing could, and there is no way to walk outward
+ * from a folder that is already the boundary. The boundary itself is unchanged:
+ * `mayRead` is still the only thing that decides what may be read, and this
+ * answers none of its questions.
+ *
  * **The search is the Root's own walk, bounded exactly as `search_files` bounds
  * its own.** `node_modules`, `.git` and `.env*` are never named, `.gitignore` is
  * honoured, and the folder ceiling is the same one. What differs is that the walk
@@ -69,10 +86,20 @@ const resolveRequestSchema = z
   })
   .strict();
 
-const filesRequestSchema = z.discriminatedUnion("action", [findRequestSchema, resolveRequestSchema]);
+/**
+ * Which folder is the Root. Takes nothing: there is no field to aim, and the
+ * route reads the one folder it already holds.
+ */
+const rootRequestSchema = z.object({ action: z.literal("root") }).strict();
+
+const filesRequestSchema = z.discriminatedUnion("action", [
+  findRequestSchema,
+  resolveRequestSchema,
+  rootRequestSchema,
+]);
 
 const MALFORMED_REQUEST =
-  "Asking about a file takes one of \"find\" or \"resolve\" — as " +
+  "Asking about a file takes one of \"find\", \"resolve\" or \"root\" — as " +
   '{ "action": "find", "query": ... } and so on.';
 
 /** What each refusal says. None of them quotes a path back, and none is the reader's fault. */
@@ -120,6 +147,16 @@ export async function POST(request: Request) {
   }
 
   const reading = await readReadingRoot(process.cwd());
+
+  if (parsed.data.action === "root") {
+    // Answered before anything else is asked, and from the same read every other
+    // action here is answered from, so the folder the composer shows is the folder
+    // this route would read in — not a second look at a file that may since have
+    // changed. `malformed` rides with it because "no Root" and "a Root this app
+    // cannot read" look identical to a caller otherwise, and they are opposite
+    // things for a reader: one is a decision to make, the other a file to repair.
+    return Response.json({ root: reading.root, malformed: reading.malformed });
+  }
 
   if (parsed.data.action === "resolve") {
     // Asked here rather than taken from `mayRead`'s own answer, because with no

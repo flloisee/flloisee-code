@@ -7,7 +7,7 @@ import { POST } from "@/app/api/files/route";
 import { ROOT_FILE } from "@/lib/roots/reading-root";
 import { temporaryProject, type TemporaryProject } from "@/lib/testing/temporary-project";
 
-import { findFiles, resolvePath } from "./file-finder";
+import { findFiles, readRootPath, resolvePath } from "./file-finder";
 
 /**
  * Reading the `/api/files` route's answer, at the one place the interface reads it.
@@ -242,5 +242,79 @@ describe("the verdict on a path the reader named", () => {
     // An unrecognised reason is not a reason. Falling back to "outside" would put
     // a question to the reader about a boundary this app cannot describe.
     expect(answer).toMatchObject({ status: "refused", reason: "unknown" });
+  });
+});
+
+/**
+ * The one answer on this route that hands over the Root's own path.
+ *
+ * Every other answer here is written to keep the folder's address off the wire —
+ * the test above says so outright — so this is asked as its own thing: it is a
+ * deliberate exception, it is asked with no field at all, and it is the composer
+ * naming the boundary a Response is being read from.
+ */
+describe("asking which folder is the Root", () => {
+  it("answers with the whole path, which is what the composer draws", async () => {
+    await choose(await rootOnDisk());
+
+    const answer = await readRootPath();
+
+    expect(answer).toEqual({ status: "declared", root: inRoot });
+  });
+
+  it("sends nothing to ask it with, so there is no field here to aim", async () => {
+    await choose(await rootOnDisk());
+    const sent: unknown[] = [];
+    const reading = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await reading(input, init);
+      sent.push(JSON.parse(String(init?.body)));
+      return response;
+    }) as typeof fetch;
+
+    await readRootPath();
+
+    // The route's whole boundedness is that a caller cannot name anything here.
+    // A field would be the primitive it exists not to have, and this is the one
+    // answer on the route where a caller gains nothing by aiming.
+    expect(sent).toEqual([{ action: "root" }]);
+  });
+
+  it("keeps a Root it cannot read apart from one that was never chosen", async () => {
+    await writeFile(path.join(here, ROOT_FILE), "this is not json");
+
+    const answer = await readRootPath();
+
+    // Both arrive as a null. Read as one answer they are the same fact, and they
+    // are not: one is a decision the reader has not made, the other a file they
+    // have to repair.
+    expect(answer).toEqual({ status: "no-root", malformed: true });
+  });
+
+  it("treats an answer in a shape it does not know as a refusal, not as no folder at all", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ root: 42 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    const answer = await readRootPath();
+
+    // Reading a route that answered oddly as "you have chosen no folder" would put
+    // a sentence in the composer that is confidently wrong.
+    expect(answer.status).toBe("refused");
+  });
+
+  it("does not need to be told a folder is fine, for a server that says only that it is empty", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ root: null }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    // Defaulted rather than demanded, because a server that never recorded a
+    // folder is not a broken route — and refusing it would put "could not reach"
+    // in the composer of a perfectly working app.
+    expect(await readRootPath()).toEqual({ status: "no-root", malformed: false });
   });
 });

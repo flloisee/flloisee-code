@@ -158,13 +158,20 @@ than a visible failure.
 | `POST /api/recommendations` | Which Models would run at a given speed on that machine, and in which order to show them. |
 | `POST /api/keys` | Key Entry. Development only. |
 | `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, the reader's own answers, and where a folder of a given name really is. Development only. |
-| `POST /api/files` | Naming a file from the Root: the `@` menu, and a verdict on a path the reader wrote. |
+| `POST /api/files` | Naming a file from the Root: the `@` menu, a verdict on a path the reader wrote, and which folder is the Root. Takes no path. |
 
 Chat and discovery are deliberately separate seams: discovery fails with a bad address or a
 missing Credential, generation fails for entirely different reasons, and collapsing them
 would make every failure look like a chat failure. The same reasoning splits Root from
 files: choosing a folder is a write to this machine and refuses to run outside development,
 while asking what is in one writes nothing and therefore works in any build.
+
+`/api/files` also answers **which folder is the Root**, which is the one place the browser is
+handed a path: the composer names it, so a reader can see the boundary a Response is being read
+from. It is bounded by taking **nothing** — there is no field to aim, and the answer is one
+folder the reader declared themselves on their own machine, which no other action on the route
+lists or walks from. `mayRead` remains the only thing that decides what may be read; this
+answers none of its questions.
 
 `/api/hardware` and `/api/recommendations` take a deliberately narrow view of what a caller
 may say. The first takes **nothing** — `.strict()` on an empty object — because it shells out

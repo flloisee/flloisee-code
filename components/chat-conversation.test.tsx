@@ -807,7 +807,14 @@ describe("chatting with a Model picked from discovery", () => {
     // interface has to send the picked identifier, and the server has to
     // forward it untouched. A server loading any other Model — its default, or
     // nothing at all — is this test failing at the stub rather than in words.
-    await waitFor(() => expect(screen.getByText(/Hello\./)).toBeTruthy(), { timeout: 5000 });
+    // Waited on the Turn rather than on the words appearing anywhere on screen:
+    // an empty Conversation greets the reader in its own words, and a greeting
+    // that happened to match this Response satisfied the wait before a request
+    // had left — which is how this came to read as the Model never having been
+    // asked for anything at all.
+    await waitFor(() => expect(turnsOnScreen().join(" ")).toContain("Hello."), {
+      timeout: 5000,
+    });
     expect(askedFor[0]).toEqual({
       endpointId: "lmstudio",
       modelId: "ling-3.0-tiny-abliterated-apex",

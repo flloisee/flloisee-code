@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import type { Socket } from "node:net";
 
@@ -9,8 +10,10 @@ import type { UIMessage } from "ai";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
+import { POST as FILES_POST } from "@/app/api/files/route";
 import { Chat, Turn } from "@/components/chat";
 import { findEndpoint } from "@/lib/endpoints/registry";
+import { ROOT_CHANGED_KEY } from "@/lib/roots/root-readout";
 import { temporaryProject, type TemporaryProject } from "@/lib/testing/temporary-project";
 
 /**
@@ -184,6 +187,13 @@ beforeEach(async () => {
     if (url.endsWith("/api/chat")) {
       return POST(new Request(new URL(url, "http://localhost").href, init));
     }
+    // The composer asks the file route which folder is the Root, on mount and
+    // again whenever the picker announces a change. Rewired the same way, so the
+    // readout on screen is the real route's answer read from the same temporary
+    // project the rest of these tests run in.
+    if (url.endsWith("/api/files")) {
+      return FILES_POST(new Request(new URL(url, "http://localhost").href, init));
+    }
     return REAL_FETCH(input, init);
   }) as typeof fetch;
 
@@ -344,6 +354,162 @@ const message = (role: "user" | "assistant", text: string): UIMessage => ({
   id: "m1",
   role,
   parts: [{ type: "text", text }],
+});
+
+/** The greeting and its instruction, as an empty Conversation draws them. */
+function greeting(): string {
+  return document.querySelector<HTMLElement>("[data-greeting]")?.textContent?.trim() ?? "";
+}
+
+/** The folder the composer says the Model may read, or "" while it has not answered. */
+function folderOnScreen(): string {
+  return document.querySelector<HTMLElement>("[data-root]")?.textContent?.trim() ?? "";
+}
+
+/** Records a Root in this test's project, the way the development route does. */
+async function declareRootHere(folder: string): Promise<void> {
+  await writeFile(project.rootFile(), `${JSON.stringify({ root: folder, grants: [] }, null, 2)}\n`);
+}
+
+/**
+ * Which folder a Response is being read from.
+ *
+ * Every answer in a Turn comes from somewhere, and until this line existed nothing
+ * on screen said where: the Root lives behind the Settings dialog, so a reader who
+ * had declared one had no way to tell whether the answer in front of them came from
+ * inside it. These tests are about the composer saying so, and about saying the one
+ * that is current.
+ *
+ * The folders are written as paths rather than as the temporary project's own,
+ * because the temporary project's is long enough to be cut on its own — which is a
+ * true fact about it and useless for telling a cut from an uncut line.
+ */
+describe("the folder a Response is being read from", () => {
+  const A_PROJECT = "/Users/someone/Dev/hackathon-ai";
+  const ANOTHER = "/Users/someone/Dev/other-project";
+  const A_LONG_ONE =
+    "/Volumes/External/Dev Projects/Github/Repos/flloisee-code/components/chat";
+
+  it("says a folder has not been chosen, rather than drawing nothing", async () => {
+    // Silence would be an answer too — "no folder" and "the app has not told me
+    // yet" are different facts, and only one of them is a decision the reader
+    // still has to make in Settings.
+    await waitFor(() => expect(folderOnScreen()).toBe("No folder chosen"));
+  });
+
+  it("names the folder, once one is declared", async () => {
+    await declareRootHere(A_PROJECT);
+    renderOn("ollama", "Ollama", "llama3.2");
+
+    // The whole path, while it fits: a Root-relative name would be a sentence the
+    // reader could not place on their own machine.
+    await waitFor(() => expect(folderOnScreen()).toBe(A_PROJECT));
+  });
+
+  it("keeps both ends of a path too long for the line, rather than its end only", async () => {
+    await declareRootHere(A_LONG_ONE);
+    renderOn("ollama", "Ollama", "llama3.2");
+
+    await waitFor(() => expect(folderOnScreen()).toContain("..."));
+
+    // A cut at the end would keep the folder's name and throw away every sign of
+    // where it is; a cut at the front would keep the volume and lose the folder.
+    // The middle is the part of a path nobody has to think about.
+    const drawn = folderOnScreen();
+    expect(drawn.startsWith("/Volumes/External/")).toBe(true);
+    expect(drawn.endsWith("components/chat")).toBe(true);
+  });
+
+  it("carries the whole of a cut path to a hover", async () => {
+    await declareRootHere(A_LONG_ONE);
+    renderOn("ollama", "Ollama", "llama3.2");
+
+    // The cut is only acceptable while nothing is lost, and the reader is the one
+    // who decides whether a cut was lossy — which they cannot do from the words on
+    // screen alone.
+    await waitFor(() =>
+      expect(document.querySelector<HTMLElement>("[data-root]")?.getAttribute("title")).toBe(
+        A_LONG_ONE,
+      ),
+    );
+  });
+
+  it("shares its line with what the message will be sent to", async () => {
+    await declareRootHere(A_PROJECT);
+    renderOn("ollama", "Ollama", "llama3.2");
+
+    await waitFor(() => expect(folderOnScreen()).toBe(A_PROJECT));
+
+    // Who is answering and what it may read are halves of one question, read
+    // together before a message is written and never again. Two rows would be two
+    // questions, and the second one is the one a reader forgets exists.
+    const line = document.querySelector("[data-root]")?.parentElement;
+    expect(line?.querySelector("[data-in-use]")?.textContent).toContain("Ollama");
+  });
+
+  it("names the new folder when one is declared while the composer is open", async () => {
+    await declareRootHere(A_PROJECT);
+    renderOn("ollama", "Ollama", "llama3.2");
+    await waitFor(() => expect(folderOnScreen()).toBe(A_PROJECT));
+
+    await declareRootHere(ANOTHER);
+    window.dispatchEvent(new StorageEvent("storage", { key: ROOT_CHANGED_KEY, newValue: "" }));
+
+    // A composer left naming the last folder is making a claim about where the next
+    // answer comes from, and the reader who just moved the boundary would be told
+    // nothing. The dispatch is the picker's own announcement, replayed by hand
+    // because the picker is not on screen here.
+    await waitFor(() => expect(folderOnScreen()).toBe(ANOTHER));
+  });
+
+  it("stops claiming a folder once one is taken back", async () => {
+    await declareRootHere(A_PROJECT);
+    renderOn("ollama", "Ollama", "llama3.2");
+    await waitFor(() => expect(folderOnScreen()).toBe(A_PROJECT));
+
+    await rm(project.rootFile());
+    window.dispatchEvent(new StorageEvent("storage", { key: ROOT_CHANGED_KEY, newValue: "" }));
+
+    // Silence here would be the worse failure: the composer would go on naming a
+    // folder that nothing is read from, which is the same claim in the other
+    // direction.
+    await waitFor(() => expect(folderOnScreen()).toBe("No folder chosen"));
+  });
+});
+
+/**
+ * A Conversation that has not been begun in yet.
+ *
+ * The one screen in the app with nothing of the reader's on it, and the only place
+ * a greeting is ever drawn — so what is asserted here is that it is there at all,
+ * that the Endpoint it is about is named, and that it makes way for the first Turn
+ * rather than sitting above it forever.
+ */
+describe("a Conversation that has not begun", () => {
+  it("greets the reader before anything has been sent", () => {
+    // An empty screen with only the instruction on it tells the reader what the
+    // composer does, and says nothing to them — the one line that could greet.
+    expect(turnsOnScreen()).toEqual([]);
+    expect(greeting()).toContain("Hello");
+  });
+
+  it("names the Endpoint the greeting is about", () => {
+    renderOn("lmstudio", "LM Studio", "qwen3.5-4b-mlx");
+
+    // By name, for the same reason the composer names it by name: the greeting is
+    // the reader's first sight of which Endpoint they are talking to.
+    expect(greeting()).toContain("LM Studio");
+  });
+
+  it("says no more once the first Turn is on screen", async () => {
+    endpointAnswers(["One"]);
+    sendMessage("hello");
+    await waitForResponseWords(1);
+
+    // The greeting stands in for a screen with nothing on it. Left up once a Turn
+    // had arrived it would read as the Model saying hello above its own answer.
+    expect(greeting()).toBe("");
+  });
 });
 
 /**
