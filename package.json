@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "clean:appledouble": "find . -name '._*' -not -path './node_modules/*' -not -path './.git/*' -delete",
+    "predev": "pnpm run clean:appledouble",
     "prebuild": "pnpm run clean:appledouble",
     "build": "next build",
     "start": "next start",
