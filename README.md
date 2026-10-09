@@ -91,11 +91,21 @@ different. Key Entry writes a Credential, and it is bounded accordingly:
 - **Write-only.** Stored values are never returned.
 
 The Reading Root route writes which folder the Model may read into `.reading-root.json`, and
-is bounded by containment rather than by refusing to run: also development only, it holds a
-**Root** and the **Grants** you have given beyond it, a Grant is an addition to that boundary
-and never a substitute for it, and the browser never names a path the server has not just
-offered — the server resolves and checks every one, so reaching the route cannot widen what is
-read. Both write atomically and both are gitignored.
+is bounded by containment rather than by refusing to run. Like the one above it is development
+only, and it writes atomically to a gitignored file. It holds a **Root** and the **Grants**
+given beyond it; a Grant is an addition to that boundary and never a substitute for it, and the
+server resolves and checks every path it is given rather than trusting a caller's word for it.
+
+What that route can be reached to do is worth stating exactly, because it is narrower than it
+may sound and wider than "it only lists folders". In development, a caller can name **any path
+under the reader's own home directory** and have it checked against home. It cannot read that
+file's contents, cannot write anywhere but the one Root file, and cannot do either outside
+development. The alternative — opaque handles for entries the server offered, so a caller can
+only ever walk where it has already been — was considered and rejected as a second source of
+truth with a lifetime to invalidate across a dev-server reload, for a route that is
+development-only and can write nothing but a Root.
+
+Both write atomically and both are gitignored.
 
 An **unconfigured** Endpoint stays visible in the picker, marked, so its absence is
 diagnosable rather than a failed request discovered later.
