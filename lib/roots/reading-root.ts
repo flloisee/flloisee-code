@@ -117,6 +117,30 @@ function parseRootFile(contents: string): RootFile | null {
   return { root, grants };
 }
 
+/**
+ * Writes the file from a whole Root, which every writer here is.
+ *
+ * One place, so that "what this file holds" is one question: a second renderer
+ * would be a second answer to it, and the answer is what every later containment
+ * check is made against. Grants are sorted and de-duplicated, so the file reads
+ * in the same order twice and granting the same path twice records it once.
+ */
+async function writeRootFile(
+  dir: string,
+  root: string,
+  grants: string[],
+  writeTempFile?: TempFileWriter,
+): Promise<void> {
+  const contents = `${JSON.stringify({ root, grants: [...new Set(grants)].sort() }, null, 2)}\n`;
+
+  await writeAtomically({
+    target: path.join(dir, ROOT_FILE),
+    contents,
+    tempName,
+    ...(writeTempFile ? { writeTempFile } : {}),
+  });
+}
+
 export type DeclareRoot = {
   /** The project root: where the file sits. */
   dir: string;
@@ -136,15 +160,8 @@ export type DeclareRoot = {
  */
 export async function declareRoot({ dir, root, writeTempFile }: DeclareRoot): Promise<void> {
   const current = await readReadingRoot(dir);
-  const contents = `${JSON.stringify({ root, grants: current.grants }, null, 2)}\n`;
-  const target = path.join(dir, ROOT_FILE);
 
-  await writeAtomically({
-    target,
-    contents,
-    tempName,
-    ...(writeTempFile ? { writeTempFile } : {}),
-  });
+  await writeRootFile(dir, root, current.grants, writeTempFile);
 }
 
 /**
@@ -158,4 +175,64 @@ export async function declareRoot({ dir, root, writeTempFile }: DeclareRoot): Pr
  */
 export async function forgetRoot({ dir }: { dir: string }): Promise<void> {
   await fs.rm(path.join(dir, ROOT_FILE), { force: true });
+}
+
+export type GrantPath = {
+  /** The project root: where the file sits. */
+  dir: string;
+  /** The path to admit, already resolved and checked to lie outside the Root. */
+  path: string;
+  /** Replaces the temporary file's writer, so a test can interrupt the write. */
+  writeTempFile?: TempFileWriter;
+};
+
+/**
+ * Records a Grant: a path the reader has allowed the Model to read anyway.
+ *
+ * Additive and idempotent. Granting the same path twice records it once, because
+ * a list that grows every time the reader answers "always" would say something
+ * about how often they answered rather than about what they allowed.
+ *
+ * A Grant needs a Root to be an addition to, and `grantPath` refuses without one
+ * rather than writing an entry nothing will ever read — see `mayRead`.
+ */
+export async function grantPath({ dir, path: granted, writeTempFile }: GrantPath): Promise<void> {
+  const current = await readReadingRoot(dir);
+  if (current.root === null) return;
+
+  await writeRootFile(dir, current.root, [...current.grants, granted], writeTempFile);
+}
+
+export type RevokeGrant = {
+  /** The project root: where the file sits. */
+  dir: string;
+  /** The recorded path to take back, exactly as the file holds it. */
+  path: string;
+  /** Replaces the temporary file's writer, so a test can interrupt the write. */
+  writeTempFile?: TempFileWriter;
+};
+
+/**
+ * Takes a Grant back out.
+ *
+ * Compared exactly, and never normalised first. The paths in the file are the
+ * resolved ones, and a path that resolves to a string the file does not hold is
+ * not a Grant — it is a name. Resolving before comparing would let a caller
+ * remove a Grant by naming something that merely points at the same place, which
+ * is a way of editing the boundary without naming it.
+ *
+ * Removes one and writes even when the path was not there, so that the answer
+ * the reader is shown is the file as it now stands rather than an error about a
+ * path they can no longer see listed.
+ */
+export async function revokeGrant({ dir, path: revoked, writeTempFile }: RevokeGrant): Promise<void> {
+  const current = await readReadingRoot(dir);
+  if (current.root === null) return;
+
+  await writeRootFile(
+    dir,
+    current.root,
+    current.grants.filter((grant) => grant !== revoked),
+    writeTempFile,
+  );
 }

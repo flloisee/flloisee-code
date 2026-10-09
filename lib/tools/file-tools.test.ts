@@ -235,6 +235,97 @@ describe("a path the Root does not cover", () => {
   });
 });
 
+describe("a read the reader has answered", () => {
+  /**
+   * The history the SDK hands a Tool when the reader has answered one question
+   * about one call: the request names both ids, and the response names the
+   * approval.
+   *
+   * `askedFor` and `running` are separate because they can differ, and that is
+   * the case worth pinning: an answer is about the call that was asked about, not
+   * about whichever call happens to be running.
+   */
+  function answered(approved: boolean, askedFor = "call-1", running = askedFor): never {
+    return {
+      toolCallId: running,
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", toolCallId: askedFor, toolName: "read_file", input: {} },
+            {
+              type: "tool-approval-request",
+              approvalId: "aitxt-1",
+              toolCallId: askedFor,
+              reason: "outside the folder you shared",
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [{ type: "tool-approval-response", approvalId: "aitxt-1", approved }],
+        },
+      ],
+      context: undefined,
+    } as never;
+  }
+
+  it("is read, so the answer the interface collected is the read that happens", async () => {
+    const elsewhere = await outsideFolder("notes");
+    await writeFile(path.join(elsewhere, "todo.md"), "ship the thing\n", "utf8");
+
+    // Without this the reader presses "allow" and watches a Turn say the file was
+    // not read — which is not a refusal the reader can act on, because there is
+    // nothing left for them to do about it.
+    const read = (await fileTools({ root, grants: [], malformed: false }).read_file.execute(
+      { path: "../notes/todo.md" },
+      answered(true),
+    )) as FileRead;
+
+    expect(read).toMatchObject({ ok: true, totalLines: 1, lines: ["1: ship the thing"] });
+  });
+
+  it("is not read for a call the reader was not asked about", async () => {
+    const elsewhere = await outsideFolder("notes");
+    await writeFile(path.join(elsewhere, "todo.md"), "ship the thing\n", "utf8");
+
+    // The approval was for `call-1`. This call is `call-2`, and it inherits
+    // nothing: an answer is about the call that was asked about.
+    const read = (await fileTools({ root, grants: [], malformed: false }).read_file.execute(
+      { path: "../notes/todo.md" },
+      answered(true, "call-1", "call-2"),
+    )) as Refusal;
+
+    expect(read).toMatchObject({ ok: false, reason: "outside" });
+  });
+
+  it("is not read when the reader said no, whatever reached the Tool", async () => {
+    await outsideFolder("notes");
+
+    // The SDK blocks a denied call before it runs. A Tool that read it anyway
+    // because the history happened to mention an approval would turn a refusal
+    // into a read, which is the one thing this whole feature exists to prevent.
+    const read = (await fileTools({ root, grants: [], malformed: false }).read_file.execute(
+      { path: "../notes" },
+      answered(false),
+    )) as Refusal;
+
+    expect(read).toMatchObject({ ok: false, reason: "outside" });
+  });
+
+  it("opens a folder outside the Root once the reader has answered for it", async () => {
+    const elsewhere = await outsideFolder("notes");
+    await writeFile(path.join(elsewhere, "todo.md"), "ship the thing\n", "utf8");
+
+    // All three Tools, not just `read_file`: the answer admits a path, and a
+    // Tool that asked the question its own way would be a second gate.
+    const tools = fileTools({ root, grants: [], malformed: false });
+    const listing = (await tools.list_files.execute({ path: "../notes" }, answered(true))) as Listing;
+
+    expect(listing).toMatchObject({ ok: true, entries: [{ name: "todo.md", kind: "file" }] });
+  });
+});
+
 function readFile(input: { path: string; offset?: number; limit?: number }): Promise<FileRead | Refusal> {
   return fileTools({ root, grants: [], malformed: false }).read_file.execute(input, CALL) as Promise<
     FileRead | Refusal

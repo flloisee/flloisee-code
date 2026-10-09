@@ -34,6 +34,12 @@ TOOLS=lib/tools/file-tools.ts
 SCAN=lib/roots/scan.ts
 TEXT=lib/roots/text.ts
 
+# Answering an approval. Two decisions that only the reader makes: which history
+# entry counts as their answer, and whether "always allow" is recorded before the
+# answer is sent rather than after.
+APPROVED=lib/tools/approved.ts
+ANSWERING=components/approval-answer.tsx
+
 BACKUP_DIR=$(mktemp -d)
 
 cp $WRITER $BACKUP_DIR/writer.ts
@@ -47,6 +53,8 @@ cp $ROOTS_ROUTE $BACKUP_DIR/roots-route.ts
 cp $TOOLS $BACKUP_DIR/tools.ts
 cp $SCAN $BACKUP_DIR/scan.ts
 cp $TEXT $BACKUP_DIR/text.ts
+cp $APPROVED $BACKUP_DIR/approved.ts
+cp $ANSWERING $BACKUP_DIR/answering.tsx
 
 restore() {
   cp $BACKUP_DIR/writer.ts $WRITER
@@ -60,6 +68,8 @@ restore() {
   cp $BACKUP_DIR/tools.ts $TOOLS
   cp $BACKUP_DIR/scan.ts $SCAN
   cp $BACKUP_DIR/text.ts $TEXT
+  cp $BACKUP_DIR/approved.ts $APPROVED
+  cp $BACKUP_DIR/answering.tsx $ANSWERING
 }
 trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
 
@@ -229,8 +239,7 @@ run "M20 reads the Root alone and no Grants" $READABLE \
 # the reader as one they allowed when they did not — and a read the Root covers
 # is shown as an approval that needs no approval.
 run "M21 calls every read the Root's" $READABLE \
-  'under: answer.boundary === root ? "root" : "grant",' \
-  'under: "root",' \
+  'answer.boundary === root' '"root" === root' \
   'lib/roots/readable.test.ts'
 
 # `path.join` collapses `link/../src` before the disk sees it, which is a
@@ -331,6 +340,47 @@ run "M34 reports a partial search as complete" $TOOLS \
   'complete: !walk.stopped,' 'complete: true,' \
   'lib/tools/file-tools.test.ts'
 
+# Answering an approval. The reader's decision is the only thing that widens the
+# boundary, and each of these is a way for a decision that was not theirs — or not
+# yet recorded — to be acted on as though it were.
+
+# The route records a Grant for any path at all, so the browser can hand the app a
+# general "make this readable" request aimed at a server holding every Credential on
+# the machine. It is the same walk the Root itself is held to.
+run "M35 grants a path outside the reader's own folders" $ROOTS_ROUTE \
+  'if (!admitted.admitted) return { ok: false, reason: admitted.reason };' \
+  'if (false) return { ok: false, reason: admitted.reason };' \
+  'app/api/roots/route.test.ts'
+
+# The route records a Grant for a path the Root already covers, so the list the
+# reader reads to take permissions back is padded with entries no decision of
+# theirs backs — and the real Grants are harder to see.
+run "M36 grants a path the Root already covers" $ROOTS_ROUTE \
+  'if (covered.admitted) return { ok: false, reason: "already-granted" };' \
+  'if (false) return { ok: false, reason: "already-granted" };' \
+  'app/api/roots/route.test.ts'
+
+# The Tools stop hearing the reader, so approving a read produces a Turn that says
+# the file was not read. Nothing else in the app would notice: the reader pressed
+# the button, the answer went, the Turn carried on.
+run "M37 the Tools do not hear the reader's answer" $TOOLS \
+  'mayRead(reading, asked, answered)' 'mayRead(reading, asked)' \
+  'lib/tools/file-tools.test.ts lib/tools/approved.test.ts'
+
+# The answer is matched to any approval rather than to this call's, so one "allow"
+# on a file the reader was asked about opens every other path they were asked
+# about in the same Conversation.
+run "M38 any answer counts as this call's" $APPROVED \
+  'approvalIds.has(part.approvalId)' 'true' \
+  'lib/tools/approved.test.ts lib/tools/file-tools.test.ts'
+
+# "Always allow" answers the approval whether or not the Grant was recorded, so the
+# reader is told a path will not be asked about again and it is asked about again
+# on the next Turn.
+run "M39 answers before the Grant is recorded" $ANSWERING \
+  'if (outcome.status !== "granted") {' 'if (false) {' \
+  'components/approval-answer.test.tsx'
+
 restore
 print ""
 
@@ -349,7 +399,9 @@ for pair in \
   "$BACKUP_DIR/roots-route.ts:$ROOTS_ROUTE" \
   "$BACKUP_DIR/tools.ts:$TOOLS" \
   "$BACKUP_DIR/scan.ts:$SCAN" \
-  "$BACKUP_DIR/text.ts:$TEXT"; do
+  "$BACKUP_DIR/text.ts:$TEXT" \
+  "$BACKUP_DIR/approved.ts:$APPROVED" \
+  "$BACKUP_DIR/answering.tsx:$ANSWERING"; do
   backup=${pair%%:*}
   original=${pair#*:}
 

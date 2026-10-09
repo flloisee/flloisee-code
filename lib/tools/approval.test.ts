@@ -155,6 +155,25 @@ describe("a path that is not there", () => {
   });
 });
 
+describe("a Grant the reader has taken back", () => {
+  it("asks about the path again, because the decision is no longer on file", async () => {
+    await write("elsewhere/notes.md");
+
+    const asked = "../elsewhere/notes.md";
+
+    // The whole point of listing a Grant with a control to remove it: the removal
+    // takes effect on the next Turn, and nothing about this Turn is rewritten to
+    // make that look tidy.
+    const granted = await decide(reading(path.join(project, "elsewhere")), "read_file", {
+      path: asked,
+    });
+    const takenBack = await decide(reading(), "read_file", { path: asked });
+
+    expect(granted).toMatchObject({ type: "approved" });
+    expect(takenBack).toMatchObject({ type: "user-approval" });
+  });
+});
+
 describe("the policy", () => {
   it("answers the same way every time it is asked about one path", async () => {
     await write("elsewhere/notes.md");

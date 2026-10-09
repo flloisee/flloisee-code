@@ -1,10 +1,16 @@
 "use client";
 
-import { DefaultChatTransport, type UIMessage } from "ai";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  type UIMessage,
+} from "ai";
 import { useChat } from "@ai-sdk/react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { isToolCall } from "@/lib/chat/tool-part";
+import { ApprovalAnswering } from "./approval-answer";
+import { canAnswer, type ApprovalAnswer } from "@/lib/chat/approval-answer";
+import { isAwaitingApproval, isToolCall } from "@/lib/chat/tool-part";
 import type { SavedConversation } from "@/lib/conversations/store";
 
 import { Markdown } from "./markdown";
@@ -139,7 +145,16 @@ export function Chat({
 }: ChatProps) {
   const [input, setInput] = useState("");
 
-  const { messages, sendMessage, status, stop, error, setMessages, regenerate } = useChat({
+  const {
+    messages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    setMessages,
+    regenerate,
+    addToolApprovalResponse,
+  } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     // Bound re-renders while a Response streams in, so reading stays smooth.
     throttle: 50,
@@ -149,6 +164,11 @@ export function Chat({
     // saved Conversation instead of starting a parallel one.
     id: conversation?.id,
     messages: conversation?.messages,
+    // What makes answering a question carry on by itself. Without it the reader
+    // answers, the row settles into `approval-responded`, and the Turn simply
+    // stops there — the Model never learns whether the read was allowed, so
+    // nothing about the file is ever read and nothing is said about it.
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
 
   // Saved as the Turns change, so a reload reopens what was in front of the
@@ -168,6 +188,41 @@ export function Chat({
   }, [messages, onSave]);
 
   const inProgress = status === "submitted" || status === "streaming";
+
+  /**
+   * A read the Model is waiting on the reader to answer.
+   *
+   * A Grant-covered read is asked about by the same machinery and answered in the
+   * same generation, so it is not outstanding and a Turn is not waiting on it —
+   * which is the distinction `isAwaitingApproval` draws and the reason it is not
+   * simply "is any part approved-pending".
+   */
+  const awaitingAnswer = messages.some((message) => message.parts.some(isAwaitingApproval));
+
+  /**
+   * The reader's answer, sent only when there is a question to answer it to.
+   *
+   * The SDK matches on the approval's own id and quietly ignores an answer that
+   * matches nothing — while still firing the resume that follows an answer, so an
+   * id from nowhere (or a second press) sends a Turn nobody asked for. Checked
+   * here, where the whole Conversation is to hand, and refused rather than
+   * half-applied.
+   *
+   * **The Endpoint and Model go with it.** `sendMessage` and `regenerate` do not
+   * remember their body, and neither does `addToolApprovalResponse`: the options
+   * are handed to each of them separately and none of them keeps what the last one
+   * used. A resume sent without them is refused by the route for naming no
+   * Endpoint and no Model — the reader presses "allow" and the Turn simply stops,
+   * which looks exactly like the question having no answer.
+   */
+  function answerApproval(answer: ApprovalAnswer) {
+    if (!canAnswer(messages, answer.id)) return;
+
+    void addToolApprovalResponse({
+      ...answer,
+      options: { body: { endpointId, modelId } },
+    });
+  }
 
   // Regenerating rewrites the last Response, so it needs one to exist and
   // nothing else in flight; otherwise two Responses would race for the same Turn.
@@ -209,16 +264,18 @@ export function Chat({
       {/* `hm-scroll` reserves the scrollbar's gutter whether or not one is
           drawn, so the Turns do not slide sideways the moment the Theme
           changes — or the moment the first Turn makes this scrollable. */}
-      <div className="hm-scroll flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
-        {messages.length === 0 && (
-          <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
-            Send a message to begin a Conversation with {endpointName}.
-          </p>
-        )}
-        {messages.map((message) => (
-          <Turn key={message.id} message={message} />
-        ))}
-      </div>
+      <ApprovalAnswering answer={answerApproval}>
+        <div className="hm-scroll flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-6">
+          {messages.length === 0 && (
+            <p className="mx-auto max-w-[52ch] text-center text-sm text-muted">
+              Send a message to begin a Conversation with {endpointName}.
+            </p>
+          )}
+          {messages.map((message) => (
+            <Turn key={message.id} message={message} />
+          ))}
+        </div>
+      </ApprovalAnswering>
 
       {error && (
         <p role="alert" className="mx-4 mb-2 sm:mx-6">
@@ -279,11 +336,15 @@ export function Chat({
           New
         </button>
 
-        {/* Disabled while a Response is in progress so Turns cannot interleave. */}
+        {/* Disabled while a Response is in progress so Turns cannot interleave, and
+            while a read is waiting to be answered: a Turn started behind an open
+            question would send a history in which the Model has asked for
+            something and been told nothing, which reads as though the answer was
+            yes. */}
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={inProgress || input.trim().length === 0}
+          disabled={inProgress || awaitingAnswer || input.trim().length === 0}
           className="hm-btn hm-btn--primary order-3 sm:order-none sm:ml-auto"
         >
           Send

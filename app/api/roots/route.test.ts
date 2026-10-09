@@ -152,6 +152,18 @@ describe("the folder the walk offers", () => {
     expect(await answerOf(response)).toHaveProperty("error");
   });
 
+  it("refuses a Grant request carrying a field the route does not take", async () => {
+    // The browser names the path the Model asked for and nothing else. An
+    // unexpected field that is silently ignored looks to the caller like it was
+    // honoured — and the field a caller would most want ignored is the one that
+    // decides where the Grant lands.
+    const response = await rootsRequest({ action: "grant", path: here, root: "/etc" });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toHaveProperty("error");
+    expect(await readRootFile()).toBeNull();
+  });
+
   it("refuses a request that is not JSON at all", async () => {
     const response = await POST(
       new Request("http://localhost/api/roots", { method: "POST", body: "nonsense" }),
@@ -174,7 +186,7 @@ describe("declaring a Root", () => {
     expect(await answerOf(response)).toEqual({ root: target });
 
     const read = await rootsRequest({ action: "read" });
-    expect(await answerOf(read)).toEqual({ root: target, malformed: false });
+    expect(await answerOf(read)).toEqual({ root: target, grants: [], malformed: false });
   });
 
   it("refuses a file, so a Root is always a folder that is there", async () => {
@@ -206,11 +218,11 @@ describe("forgetting a Root", () => {
     const response = await rootsRequest({ action: "forget" });
 
     expect(response.status).toBe(200);
-    expect(await answerOf(response)).toEqual({ root: null });
+    expect(await answerOf(response)).toEqual({ root: null, grants: [] });
     expect(await readRootFile()).toBeNull();
 
     const read = await rootsRequest({ action: "read" });
-    expect(await answerOf(read)).toEqual({ root: null, malformed: false });
+    expect(await answerOf(read)).toEqual({ root: null, grants: [], malformed: false });
   });
 });
 
@@ -222,6 +234,172 @@ describe("a file that is not a Root", () => {
 
     // Told rather than hidden: a reader who declared a Root and found the app
     // quietly reading nothing deserves to know there is a file in the way.
-    expect(await answerOf(response)).toEqual({ root: null, malformed: true });
+    expect(await answerOf(response)).toEqual({ root: null, grants: [], malformed: true });
+  });
+});
+
+/**
+ * Grants: the paths a reader has allowed beyond the Root, because they said yes
+ * to one when the Model asked.
+ *
+ * Written here rather than in the reader's browser, which is the whole security
+ * argument of the feature: the browser resends the whole message history each
+ * Turn and can post anything to this route, so a Grant held in the browser is a
+ * Grant something in the browser can pre-approve. A Grant is therefore the second
+ * capability this route has, and it is bounded the way the first one is.
+ */
+describe("answering \"always\" for a path outside the Root", () => {
+  /** A file the Model can ask for and the Root does not cover. */
+  async function elsewhere(): Promise<string> {
+    const folder = path.join(here, "elsewhere");
+    await mkdir(folder, { recursive: true });
+    const file = path.join(folder, "notes.md");
+    await writeFile(file, "ship the thing\n", "utf8");
+    return file;
+  }
+
+  beforeEach(async () => {
+    await rootsRequest({ action: "declare", path: path.join(here, "my-project") });
+  });
+
+  it("records the path the Model asked for, resolved, so the next read of it asks nothing", async () => {
+    const asked = await elsewhere();
+
+    // The browser sends what the Model wrote — `../elsewhere/notes.md` — and the
+    // server resolves it, because the browser has no Root and cannot.
+    const response = await rootsRequest({ action: "grant", path: "../elsewhere/notes.md" });
+
+    expect(response.status).toBe(200);
+    expect(await answerOf(response)).toEqual({
+      root: path.join(here, "my-project"),
+      grants: [asked],
+    });
+    expect(JSON.parse((await readRootFile()) ?? "{}").grants).toEqual([asked]);
+  });
+
+  it("is remembered by the next read of the Root, rather than only by the file", async () => {
+    const asked = await elsewhere();
+
+    await rootsRequest({ action: "grant", path: asked });
+
+    // A Grant is an admitted prefix, so anything under it is covered — and the
+    // read answer says so, which is what the transcript marks as automatic.
+    const read = await rootsRequest({ action: "read" });
+    expect(await answerOf(read)).toEqual({
+      root: path.join(here, "my-project"),
+      grants: [asked],
+      malformed: false,
+    });
+  });
+
+  it("refuses a path it would not itself offer, so a Grant cannot reach outside the reader's own folders", async () => {
+    await elsewhere();
+
+    // `/etc` is somewhere else on the machine entirely. The walk is bounded to the
+    // home folder for the same reason the Root is, and a Grant is no exception to
+    // the rule it was meant to widen.
+    const response = await rootsRequest({ action: "grant", path: "/etc" });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("home folder") });
+    expect(JSON.parse((await readRootFile()) ?? "{}").grants).toEqual([]);
+  });
+
+  it("refuses a path the Root already covers, rather than listing a decision that was never a question", async () => {
+    const inside = path.join(here, "my-project", "src");
+    await mkdir(inside, { recursive: true });
+
+    const response = await rootsRequest({ action: "grant", path: "src" });
+
+    // Nothing was ever asked about this path, so a Grant for it is a claim in the
+    // list that no decision backs — and the reader removing it later would be
+    // removing something they never gave.
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("already") });
+    expect(JSON.parse((await readRootFile()) ?? "{}").grants).toEqual([]);
+  });
+
+  it("refuses when no Root has been chosen, because a Grant is an addition to one", async () => {
+    await rootsRequest({ action: "forget" });
+    await elsewhere();
+
+    const response = await rootsRequest({ action: "grant", path: "../elsewhere/notes.md" });
+
+    expect(response.status).toBe(400);
+    expect(await answerOf(response)).toMatchObject({ error: expect.stringContaining("folder") });
+    expect(await readRootFile()).toBeNull();
+  });
+
+  it("records the same path once, so asking twice does not widen anything", async () => {
+    const asked = await elsewhere();
+
+    await rootsRequest({ action: "grant", path: "../elsewhere/notes.md" });
+    const again = await rootsRequest({ action: "grant", path: asked });
+
+    expect(await answerOf(again)).toEqual({
+      root: path.join(here, "my-project"),
+      grants: [asked],
+    });
+  });
+
+  it("leaves the Root alone, so granting does not cost the reader the folder they chose", async () => {
+    const asked = await elsewhere();
+
+    const response = await rootsRequest({ action: "grant", path: asked });
+
+    expect((await answerOf(response)).root).toBe(path.join(here, "my-project"));
+  });
+});
+
+describe("removing a Grant", () => {
+  /** The file a Grant is recorded for, created so the route can resolve it. */
+  async function granted(): Promise<string> {
+    const folder = path.join(here, "elsewhere");
+    await mkdir(folder, { recursive: true });
+    const file = path.join(folder, "notes.md");
+    await writeFile(file, "ship the thing\n", "utf8");
+    return file;
+  }
+
+  beforeEach(async () => {
+    await rootsRequest({ action: "declare", path: path.join(here, "my-project") });
+    await rootsRequest({ action: "grant", path: await granted() });
+  });
+
+  it("takes it back out of the file, so the reason for it does not outlive it", async () => {
+    const response = await rootsRequest({ action: "revoke", path: await granted() });
+
+    expect(response.status).toBe(200);
+    expect(await answerOf(response)).toEqual({
+      root: path.join(here, "my-project"),
+      grants: [],
+    });
+    expect(JSON.parse((await readRootFile()) ?? "{}").grants).toEqual([]);
+  });
+
+  it("takes out only the one named, so removing one decision does not revoke another", async () => {
+    const folder = path.join(here, "elsewhere");
+    const other = path.join(folder, "other.md");
+    await writeFile(other, "another\n", "utf8");
+    await rootsRequest({ action: "grant", path: other });
+
+    const response = await rootsRequest({ action: "revoke", path: path.join(folder, "notes.md") });
+
+    expect((await answerOf(response)).grants).toEqual([other]);
+  });
+
+  it("is a no-op for a path that was never granted, because it can only ever narrow", async () => {
+    const response = await rootsRequest({ action: "revoke", path: "/etc" });
+
+    // Nothing to refuse: the only thing this can do is remove an entry, so a path
+    // that is not one leaves the file exactly as it was.
+    expect(response.status).toBe(200);
+    expect((await answerOf(response)).grants).toEqual([await granted()]);
+  });
+
+  it("leaves no Grant behind when the Root is forgotten", async () => {
+    await rootsRequest({ action: "forget" });
+
+    expect(await readRootFile()).toBeNull();
   });
 });

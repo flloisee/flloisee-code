@@ -346,6 +346,77 @@ describe("a path a Grant covers", () => {
   });
 });
 
+describe("a path the reader has answered for", () => {
+  it("is read once they have said yes to this call", async () => {
+    await resetFixtures();
+    const key = path.join(project, "secrets", "id_rsa");
+
+    await expect(mayRead(aReadingRoot(), "../secrets/id_rsa", true)).resolves.toMatchObject({
+      readable: true,
+      path: key,
+    });
+
+    // And only for a call that had one. A sibling the reader was never asked about
+    // is still refused, which is the whole of what the answer bought.
+    await expect(mayRead(aReadingRoot(), "../project-other/secrets.txt")).resolves.toMatchObject({
+      readable: false,
+      reason: "outside",
+    });
+  });
+
+  it("is refused without the answer, so the reader's yes is what makes the difference", async () => {
+    await resetFixtures();
+
+    await expect(mayRead(aReadingRoot(), "../secrets/id_rsa")).resolves.toMatchObject({
+      readable: false,
+      reason: "outside",
+    });
+  });
+
+  it("is reported as its own boundary rather than as a Grant, and as the Root rather than as either", async () => {
+    await resetFixtures();
+
+    // The naming matters to one caller: a path outside the Root is written back
+    // to the Model in full, and a path inside it is written back relative to the
+    // Root. An answered path is outside the Root, so it must be named as such.
+    const answered = await mayRead(aReadingRoot(), "../secrets/id_rsa", true);
+    expect(answered).toMatchObject({ under: "approved" });
+
+    await expect(mayRead(aReadingRoot(), "README.md", true)).resolves.toMatchObject({
+      under: "root",
+    });
+  });
+
+  it("is still reported as a Grant's when a Grant covers it too", async () => {
+    await resetFixtures();
+
+    // The boundary list is Root, then Grants, then the answer — so a read that
+    // stands on a Grant is reported as granted, exactly as one inside the Root is
+    // reported as inside it rather than as whatever else covers it.
+    await expect(mayRead(aReadingRoot(granted), "../documents/notes.md", true)).resolves.toMatchObject({
+      under: "grant",
+    });
+  });
+
+  it("reads nothing where there is no Root to reach from, however the reader answered", async () => {
+    await resetFixtures();
+
+    // An answer is an addition to the Root, like a Grant, and needs one to be an
+    // addition to.
+    await expect(mayRead({ root: null, grants: [], malformed: false }, "../secrets/id_rsa", true))
+      .resolves.toMatchObject({ readable: false, reason: "outside" });
+  });
+
+  it("still refuses a path that is not there, because the reader approved a read and not a spelling", async () => {
+    await resetFixtures();
+
+    await expect(mayRead(aReadingRoot(), "../secrets/not-here", true)).resolves.toMatchObject({
+      readable: false,
+      reason: "unreadable",
+    });
+  });
+});
+
 describe("a machine that has named no Root", () => {
   it("reads nothing, and says nothing is outside it", async () => {
     await resetFixtures();

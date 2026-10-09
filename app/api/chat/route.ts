@@ -8,6 +8,7 @@ import { resolveEndpoint } from "@/lib/endpoints/resolve";
 import { readReadingRoot } from "@/lib/roots/reading-root";
 import { fileTools } from "@/lib/tools/file-tools";
 import { readingApproval } from "@/lib/tools/approval";
+import { toolApprovalSecret } from "@/lib/tools/approval-secret";
 import { READING_INSTRUCTIONS } from "@/lib/tools/instructions";
 
 /**
@@ -143,12 +144,21 @@ export async function POST(request: Request) {
   // Endpoint for a Response nobody will ever read. It covers the Tools as well
   // as the generation — the SDK hands the same signal to each Tool's `execute`,
   // and `search_files` passes it to the walk that is looking through the Root.
+  //
+  // The signing secret matters for the same reason the Root is never taken from
+  // the request: the browser resends this whole history each Turn, so without it
+  // a caller could edit an approval into one the server never issued. It is set
+  // only where approvals exist — with no Root there are no Tools and nothing to
+  // sign — and it is one value per process rather than per request, so an
+  // approval the reader is about to be asked about is still valid on the Turn
+  // they answer it.
   const result = streamText({
     model: provider.chatModel(modelId),
     ...(canRead
       ? {
           tools: fileTools(reading),
           toolApproval: readingApproval(reading),
+          experimental_toolApprovalSecret: toolApprovalSecret(),
           instructions: READING_INSTRUCTIONS,
           stopWhen: isStepCount(STEPS_PER_TURN),
         }

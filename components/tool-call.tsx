@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { getToolName } from "ai";
 
+import { ApprovalControls } from "@/components/approval-answer";
 import { isAutomaticApproval, type ToolCallPart } from "@/lib/chat/tool-part";
 
 /**
@@ -210,7 +211,17 @@ function Body({ part, name }: { part: ToolCallPart; name: string }) {
     case "approval-responded":
       return <Sentence>{`${name} is still running.`}</Sentence>;
     case "approval-requested":
-      return <Sentence>{part.approval.requestReason ?? APPROVAL_ASKED}</Sentence>;
+      return (
+        <>
+          <Sentence>{part.approval.requestReason ?? APPROVAL_ASKED}</Sentence>
+          {/* The three answers, under the sentence that says which file is being
+              asked about — a reader deciding whether to allow a read needs to read
+              what it is first. They live with the rest of answering rather than
+              here: they are about a Conversation, not about how a call turned
+              out, and a row rendered on its own has nothing to answer with. */}
+          <ApprovalControls part={part} />
+        </>
+      );
     case "output-error":
       return <Sentence>{part.errorText}</Sentence>;
     case "output-denied":

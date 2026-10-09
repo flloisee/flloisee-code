@@ -34,7 +34,7 @@ import type { ReadingRoot } from "./reading-root";
  */
 
 /** Which boundary let a path through. */
-export type Boundary = "root" | "grant";
+export type Boundary = "root" | "grant" | "approved";
 
 export type Readable =
   | { readable: true; path: string; under: Boundary }
@@ -74,27 +74,49 @@ export function resolveAgainstRoot(root: string, asked: string): string {
  * pointing where it did between the check and the read, so a caller that opens
  * what it was given can be moved in the gap. A caller that opens what it was
  * handed cannot, because there is no link left in it.
+ *
+ * `answered` is the reader saying yes to **this** call — "allow this read", as
+ * against a Grant, which is a standing decision about a path. It is admitted as
+ * a boundary in its own right rather than as a way around the check, so an
+ * approved path is resolved, link-followed and reported by exactly the code that
+ * resolves one inside the Root. Two rules for "may this be read" that could
+ * disagree is one more rule than this feature should have.
  */
-export async function mayRead(reading: ReadingRoot, asked: string): Promise<Readable> {
+export async function mayRead(
+  reading: ReadingRoot,
+  asked: string,
+  answered = false,
+): Promise<Readable> {
   const root = reading.root;
   // A Grant is an addition to the Root, and without a Root there is nothing for
   // it to be an addition to: no Root means no boundaries at all, rather than the
   // Grants alone. That is what v1 behaviour depends on — no Root means no
   // Tools, no files and nothing asked — and `outside` is the honest reason for
   // it, because with no boundary there was nothing the path could have been
-  // inside.
+  // inside. An answer is an addition too, and needs the same Root to be one.
   if (root === null) return OUTSIDE;
 
-  const answer = await admitUnder([root, ...reading.grants], resolveAgainstRoot(root, asked));
+  const oneTurn = resolveAgainstRoot(root, asked);
+  // Last, so a Grant that already covers this path is the one that says so: a
+  // read standing on a Grant is reported as granted even while it is also the
+  // read the reader just answered, exactly as a read inside the Root is reported
+  // as inside it rather than as whatever else covers it.
+  const boundaries = answered ? [root, ...reading.grants, oneTurn] : [root, ...reading.grants];
+  const answer = await admitUnder(boundaries, oneTurn);
 
   if (!answer.admitted) return { readable: false, reason: answer.reason };
 
   // `boundary` comes back as the caller wrote it, which for the Root is `root`
   // itself, and the Root is first in the list — so a path the Root covers is
-  // never reported as a Grant's, even where a Grant sits inside it.
-  return {
-    readable: true,
-    path: answer.path,
-    under: answer.boundary === root ? "root" : "grant",
-  };
+  // never reported as a Grant's, even where a Grant sits inside it. The one-Turn
+  // boundary is named so the Model is given an absolute path back rather than one
+  // relative to a Root it is not under, which is the same treatment a Grant gets.
+  const under: Boundary =
+    answer.boundary === root
+      ? "root"
+      : answered && answer.boundary === oneTurn
+        ? "approved"
+        : "grant";
+
+  return { readable: true, path: answer.path, under };
 }

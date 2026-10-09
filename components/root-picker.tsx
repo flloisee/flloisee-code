@@ -8,6 +8,7 @@ import {
   forgetRoot,
   readRoot,
   requestWalk,
+  revokeGrant,
   rootNamingIsAvailable,
   type RootAnswer,
   type RootListing,
@@ -38,6 +39,7 @@ export function RootPicker() {
   const [answer, setAnswer] = useState<RootAnswer | null>(null);
   const [removing, setRemoving] = useState(false);
   const [walkOpen, setWalkOpen] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   /**
    * The Root in use, held separately from the last answer.
@@ -47,8 +49,13 @@ export function RootPicker() {
    * the refusal would tell the reader their folder had been given up when it had
    * not — the one direction of error here that leaves them believing the Model
    * reads less than it does, or, after a removal that did work, more.
+   *
+   * The Grants are held the same way and for the same reason: one that was not
+   * taken back is still in force, and a list that had dropped it would be the app
+   * claiming the Model reads less than it can.
    */
   const [root, setRoot] = useState<string | null>(null);
+  const [grants, setGrants] = useState<string[]>([]);
 
   // Read on mount rather than held by the page, so the folder shown is the one
   // on disk now. A Root declared a moment ago in another tab is picked up here
@@ -59,6 +66,10 @@ export function RootPicker() {
       if (!current) return;
       setAnswer(read);
       if (read.status === "declared") setRoot(read.root);
+      // A refusal says nothing about the Grants and does not empty the list: the
+      // folder on disk is whatever it was, and a reader who cannot be told what
+      // it is keeps the last thing they were told.
+      if (read.status !== "refused") setGrants(read.grants);
     });
     return () => {
       current = false;
@@ -76,10 +87,34 @@ export function RootPicker() {
 
     // The Root is cleared only when the route says it was cleared. A refusal
     // leaves it, because that is the state the machine is in.
-    if (outcome.status !== "refused") setRoot(null);
+    if (outcome.status !== "refused") {
+      setRoot(null);
+      setGrants([]);
+    }
 
     setAnswer(outcome);
     setRemoving(false);
+  }
+
+  async function removeGrant(recorded: string) {
+    setRevoking(recorded);
+
+    const outcome = await revokeGrant(recorded);
+
+    if (outcome.status === "refused") {
+      // A refusal is shown as a refusal, and the list is left as it was: one that
+      // was not taken back is still in force, and a list that had dropped it
+      // would be the app claiming the Model reads less than it can.
+      setAnswer(outcome);
+      setRevoking(null);
+      return;
+    }
+
+    setGrants(outcome.grants);
+    setAnswer(
+      root === null ? { status: "none", malformed: false, grants: outcome.grants } : { status: "declared", root, grants: outcome.grants },
+    );
+    setRevoking(null);
   }
 
   const declared = root;
@@ -133,6 +168,30 @@ export function RootPicker() {
         {describe(answer, declared)}
       </p>
 
+      {grants.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {grants.map((granted) => (
+            <li key={granted} className="flex items-center gap-2">
+              {/* The path whole, and in the mono register, because this is a
+                  decision the reader has to be able to recognise rather than a
+                  caption: two of them can easily be called the same thing in
+                  different folders, and it is the folder that was asked about. */}
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted" title={granted}>
+                {granted}
+              </span>
+              <button
+                type="button"
+                onClick={() => void removeGrant(granted)}
+                disabled={revoking === granted}
+                className="hm-btn hm-btn--quiet hm-btn--sm shrink-0"
+              >
+                {revoking === granted ? "Stopping..." : "Stop allowing"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {walkOpen && (
         <RootWalk
           // Handed down rather than read again: the Root in use is already known
@@ -142,7 +201,7 @@ export function RootPicker() {
           onClose={() => setWalkOpen(false)}
           onDeclared={(chosen) => {
             setRoot(chosen);
-            setAnswer({ status: "declared", root: chosen });
+            setAnswer({ status: "declared", root: chosen, grants: [] });
           }}
         />
       )}

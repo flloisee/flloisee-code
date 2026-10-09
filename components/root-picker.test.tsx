@@ -34,6 +34,7 @@ beforeEach(async () => {
   vi.spyOn(route, "readRoot").mockImplementation(async () => (answers.shift() as never) ?? {
     status: "none",
     malformed: false,
+    grants: [],
   });
   vi.spyOn(route, "requestWalk").mockImplementation(async () => (answers.shift() as never) ?? {
     status: "refused",
@@ -42,10 +43,12 @@ beforeEach(async () => {
   vi.spyOn(route, "declareRoot").mockImplementation(async () => (answers.shift() as never) ?? {
     status: "declared",
     root: DEEP,
+    grants: [],
   });
   vi.spyOn(route, "forgetRoot").mockImplementation(async () => (answers.shift() as never) ?? {
     status: "none",
     malformed: false,
+    grants: [],
   });
 });
 
@@ -79,7 +82,7 @@ describe("with no Root chosen", () => {
 
 describe("with a Root chosen", () => {
   it("names the folder, so the reader can see what the Model will read", async () => {
-    answers.push({ status: "declared", root: `${HOME}/projects/chat` });
+    answers.push({ status: "declared", root: `${HOME}/projects/chat`, grants: [] });
     renderPicker();
 
     // The folder's own name rather than the whole path: the name is what the
@@ -90,7 +93,7 @@ describe("with a Root chosen", () => {
   });
 
   it("offers a way to change it and a way to remove it", async () => {
-    answers.push({ status: "declared", root: DEEP });
+    answers.push({ status: "declared", root: DEEP, grants: [] });
     renderPicker();
 
     await screen.findByText("chat");
@@ -102,10 +105,96 @@ describe("with a Root chosen", () => {
     // The state a reader can fix and one they cannot tell apart from "no Root" if
     // it were reported as nothing: a file is there and it does not say what it
     // should.
-    answers.push({ status: "none", malformed: true });
+    answers.push({ status: "none", malformed: true, grants: [] });
     renderPicker();
 
     expect(await screen.findByText(/could not be read/i)).toBeTruthy();
+  });
+});
+
+/**
+ * The paths the reader has allowed beyond the Root.
+ *
+ * An "always allow" is only worth having if it can be taken back: a Grant is a
+ * standing permission for a file the reader was asked about once, and the reason
+ * they said yes — a question about one document — has usually gone by the next
+ * morning. They are listed rather than summarised, because a permission the
+ * reader cannot see is a permission they cannot judge.
+ */
+describe("paths allowed beyond the Root", () => {
+  const NOTES = `${HOME}/notes/todo.md`;
+  const CONFIG = `${HOME}/etc/app.conf`;
+
+  beforeEach(() => {
+    vi.spyOn(route, "revokeGrant").mockImplementation(async () => (answers.shift() as never) ?? {
+      status: "granted",
+      grants: [],
+    });
+  });
+
+  it("lists each one whole, so the reader can tell which decision it was", async () => {
+    answers.push({ status: "declared", root: DEEP, grants: [NOTES, CONFIG] });
+    renderPicker();
+
+    await screen.findByText("chat");
+
+    // Whole, and not shortened to a basename: two of these can easily be called
+    // the same thing in different folders, and it is the folder that was asked
+    // about.
+    expect(screen.getByText(NOTES)).toBeTruthy();
+    expect(screen.getByText(CONFIG)).toBeTruthy();
+  });
+
+  it("offers a way to take each one back, and removes only the one pressed", async () => {
+    answers.push(
+      { status: "declared", root: DEEP, grants: [NOTES, CONFIG] },
+      { status: "granted", grants: [CONFIG] },
+    );
+    renderPicker();
+
+    await screen.findByText("chat");
+    const rows = screen.getAllByRole("button", { name: /stop allowing/i });
+    expect(rows).toHaveLength(2);
+
+    fireEvent.click(rows[0]);
+
+    // Named exactly as the route listed it, and never re-resolved in the browser:
+    // the route compares exactly too, and a normalised string would be asking to
+    // remove a Grant under a name the file does not hold.
+    await waitFor(() => expect(route.revokeGrant).toHaveBeenCalledWith(NOTES));
+    expect(await screen.findByText(CONFIG)).toBeTruthy();
+    expect(screen.queryByText(NOTES)).toBeNull();
+  });
+
+  it("keeps a Grant on screen when the route refused to take it back", async () => {
+    answers.push(
+      { status: "declared", root: DEEP, grants: [NOTES] },
+      { status: "refused", message: "The app refused that. Nothing was written." },
+    );
+    renderPicker();
+
+    await screen.findByText("chat");
+    fireEvent.click(screen.getByRole("button", { name: /stop allowing/i }));
+
+    // A removal that appears to have worked and has not is the one direction of
+    // error here that leaves the reader believing the Model reads less than it
+    // does.
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      expect.stringMatching(/refused/i),
+    );
+    expect(screen.getByText(NOTES)).toBeTruthy();
+  });
+
+  it("shows none of this when nothing has been allowed", async () => {
+    answers.push({ status: "declared", root: DEEP, grants: [] });
+    renderPicker();
+
+    await screen.findByText("chat");
+
+    // Nothing to list and nothing to remove: a control that removes nothing is a
+    // button whose only effect is to do nothing.
+    expect(screen.queryByRole("button", { name: /stop allowing/i })).toBeNull();
   });
 });
 
@@ -125,7 +214,7 @@ function listing(
 
 describe("walking to a folder", () => {
   it("opens at the folder already in use, so the reader starts where they left off", async () => {
-    answers.push({ status: "declared", root: DEEP }, listing(DEEP, [{ name: "src", kind: "directory" }]));
+    answers.push({ status: "declared", root: DEEP, grants: [] }, listing(DEEP, [{ name: "src", kind: "directory" }]));
     renderPicker();
 
     const dialog = await openWalk();
@@ -138,7 +227,7 @@ describe("walking to a folder", () => {
   });
 
   it("opens at the reader's home folder when no Root has been chosen", async () => {
-    answers.push({ status: "none", malformed: false }, listing(HOME, [{ name: "projects", kind: "directory" }]));
+    answers.push({ status: "none", malformed: false, grants: [] }, listing(HOME, [{ name: "projects", kind: "directory" }]));
     renderPicker();
 
     const dialog = await openWalk();
@@ -151,7 +240,7 @@ describe("walking to a folder", () => {
 
   it("walks down into a folder that is clicked, and back up when the way back is offered", async () => {
     answers.push(
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
       listing(DEEP, [{ name: "src", kind: "directory" }], `${HOME}/projects`),
       listing(`${DEEP}/src`, [{ name: "index.ts", kind: "file" }], DEEP),
       listing(DEEP, [{ name: "src", kind: "directory" }], `${HOME}/projects`),
@@ -175,7 +264,7 @@ describe("walking to a folder", () => {
   });
 
   it("offers no way back up at the edge, rather than one that goes nowhere", async () => {
-    answers.push({ status: "none", malformed: false }, listing(HOME, [{ name: "projects", kind: "directory" }]));
+    answers.push({ status: "none", malformed: false, grants: [] }, listing(HOME, [{ name: "projects", kind: "directory" }]));
     renderPicker();
 
     const dialog = await openWalk();
@@ -188,9 +277,9 @@ describe("walking to a folder", () => {
 
   it("records the folder the reader is in, and says it is in use", async () => {
     answers.push(
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
       listing(DEEP, [{ name: "src", kind: "directory" }]),
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
     );
     renderPicker();
 
@@ -207,7 +296,7 @@ describe("walking to a folder", () => {
 
   it("shows a file as a name rather than as a way in, since a Root is a folder", async () => {
     answers.push(
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
       listing(DEEP, [{ name: "index.ts", kind: "file" }]),
     );
     renderPicker();
@@ -223,7 +312,7 @@ describe("walking to a folder", () => {
 
   it("shows what the route refused rather than an empty listing", async () => {
     answers.push(
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
       { status: "refused", message: "There is nothing at that path." },
     );
     renderPicker();
@@ -238,7 +327,7 @@ describe("walking to a folder", () => {
 
 describe("removing the Root", () => {
   it("tells the reader nothing will be read, rather than leaving them to guess", async () => {
-    answers.push({ status: "declared", root: DEEP }, { status: "none", malformed: false });
+    answers.push({ status: "declared", root: DEEP, grants: [] }, { status: "none", malformed: false, grants: [] });
     renderPicker();
 
     await screen.findByText("chat");
@@ -253,7 +342,7 @@ describe("removing the Root", () => {
     // here: the reader would go on believing the Model could read a folder it
     // can no longer reach.
     answers.push(
-      { status: "declared", root: DEEP },
+      { status: "declared", root: DEEP, grants: [] },
       { status: "refused", message: "The app refused that. Nothing was written." },
     );
     renderPicker();

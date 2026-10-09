@@ -1,4 +1,4 @@
-import { tool, type ToolSet } from "ai";
+import { tool, type ModelMessage, type ToolSet } from "ai";
 import type { Dirent } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { mayRead, type Readable } from "@/lib/roots/readable";
 import type { ReadingRoot } from "@/lib/roots/reading-root";
 import { walkFiles, type WalkOutcome } from "@/lib/roots/scan";
 import { asText, looksBinary, toLines, withLineNumbers } from "@/lib/roots/text";
+import { readerApproved } from "@/lib/tools/approved";
 import { namer, refuse, type Refusal, type Reason } from "@/lib/tools/refusal";
 
 export { type Refusal, type Reason } from "@/lib/tools/refusal";
@@ -192,8 +193,8 @@ function makeTools(reading: ReadingRoot) {
           .optional()
           .describe("Folder to list, relative to the project root. Omit for the project root itself."),
       }),
-      execute: async ({ path: asked }): Promise<ListingOrRefusal> => {
-        const allowed = await admitPath(reading, asked ?? ".");
+      execute: async ({ path: asked }, options): Promise<ListingOrRefusal> => {
+        const allowed = await admitPath(reading, asked ?? ".", answeredFor(options));
         if (isRefusal(allowed)) return allowed;
 
         const entries = await fs.readdir(allowed.path, { withFileTypes: true }).catch(() => null);
@@ -235,8 +236,8 @@ function makeTools(reading: ReadingRoot) {
           .optional()
           .describe(`Most lines to return, up to ${MAX_READ_LINES}. Omit for the default.`),
       }),
-      execute: async ({ path: asked, offset, limit }): Promise<FileReadOrRefusal> => {
-        const allowed = await admitPath(reading, asked);
+      execute: async ({ path: asked, offset, limit }, options): Promise<FileReadOrRefusal> => {
+        const allowed = await admitPath(reading, asked, answeredFor(options));
         if (isRefusal(allowed)) return allowed;
 
         const stat = await fs.stat(allowed.path).catch(() => null);
@@ -290,10 +291,10 @@ function makeTools(reading: ReadingRoot) {
           .optional()
           .describe("Only search files whose path matches this, in .gitignore form. For example *.ts."),
       }),
-      execute: async ({ query, path: asked, glob }, { abortSignal }): Promise<SearchOrRefusal> => {
+      execute: async ({ query, path: asked, glob }, options): Promise<SearchOrRefusal> => {
         if (query.trim() === "") return nothingToSearchFor();
 
-        const allowed = await admitPath(reading, asked ?? ".");
+        const allowed = await admitPath(reading, asked ?? ".", answeredFor(options));
         if (isRefusal(allowed)) return allowed;
 
         const only = glob === undefined ? null : compileGlob(glob);
@@ -303,7 +304,7 @@ function makeTools(reading: ReadingRoot) {
 
         const walk = await walkFiles({
           from: allowed.path,
-          ...(abortSignal ? { signal: abortSignal } : {}),
+          ...(options.abortSignal ? { signal: options.abortSignal } : {}),
           ...(only ? { only: (candidate: string) => only.matches(candidate) } : {}),
           visit: ({ path: file, lines }) => {
             for (let index = 0; index < lines.length && matches.length < MAX_SEARCH_MATCHES; index += 1) {
@@ -424,6 +425,20 @@ function listingNote(shown: number, total: number): string {
 export type Admitted = Extract<Readable, { readable: true }>;
 
 /**
+ * The options the SDK hands a Tool, as far as this module reads them.
+ *
+ * Named so the three `execute` bodies say what they are asking rather than
+ * reaching into the SDK's own options shape, and so a Tool this app has no
+ * declaration for still gets an answer for the same reason a declared one does.
+ */
+type CallOptions = { toolCallId: string; messages: ModelMessage[] };
+
+/** Whether the reader said yes to this call, in the history it arrived with. */
+function answeredFor(options: CallOptions): boolean {
+  return readerApproved(options.messages, options.toolCallId);
+}
+
+/**
  * The one gate every path the Model names goes through.
  *
  * All three Tools ask this rather than calling `mayRead` themselves, so that
@@ -431,13 +446,22 @@ export type Admitted = Extract<Readable, { readable: true }>;
  * Three copies of the same question are three answers to keep in step with each
  * other, and the copy that drifts is the one nobody remembers to check.
  *
+ * `answered` is the reader having said yes to this call, which admits the path
+ * for this one read. It is asked of the history the SDK hands every Tool, rather
+ * than kept here, because the SDK has verified that history's signatures before it
+ * ran anything — so a Tool that executes is one whose answer the server issued.
+ *
  * The refusal is built here rather than by the caller so that it is *this*
  * function's answer: a caller that wrote its own message for the same refusal
  * would be free to word it as a failure of the machinery, which is what a Model
  * needs not to be told when it was simply asking outside the Root.
  */
-async function admitPath(reading: ReadingRoot, asked: string): Promise<Admitted | Refusal> {
-  const allowed = await mayRead(reading, asked);
+async function admitPath(
+  reading: ReadingRoot,
+  asked: string,
+  answered: boolean,
+): Promise<Admitted | Refusal> {
+  const allowed = await mayRead(reading, asked, answered);
   return allowed.readable ? allowed : containmentRefusal(asked, allowed.reason);
 }
 

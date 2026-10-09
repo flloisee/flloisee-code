@@ -77,7 +77,8 @@ is reloaded in place, so there is no restart to wait for.
 The interface never displays a stored value back to you. It reports which variable names are
 present and what is actually live, so you can confirm setup without exposing anything.
 
-This route is the app's only file writer, and it is bounded accordingly:
+Two routes write files, and they are bounded differently — because what they write is
+different. Key Entry writes a Credential, and it is bounded accordingly:
 
 - **Development only.** It refuses to run outside development, so a deployed build has no
   capability to write secrets at all.
@@ -88,6 +89,13 @@ This route is the app's only file writer, and it is bounded accordingly:
   the keys you already have.
 - **Non-destructive.** Comments, ordering, and unrelated variables survive untouched.
 - **Write-only.** Stored values are never returned.
+
+The Reading Root route writes which folder the Model may read into `.reading-root.json`, and
+is bounded by containment rather than by refusing to run: also development only, it holds a
+**Root** and the **Grants** you have given beyond it, a Grant is an addition to that boundary
+and never a substitute for it, and the browser never names a path the server has not just
+offered — the server resolves and checks every one, so reaching the route cannot widen what is
+read. Both write atomically and both are gitignored.
 
 An **unconfigured** Endpoint stays visible in the picker, marked, so its absence is
 diagnosable rather than a failed request discovered later.

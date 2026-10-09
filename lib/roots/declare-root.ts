@@ -5,11 +5,18 @@ import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
 /**
  * Naming a Reading Root, from the interface.
  *
- * Three requests and four answers, kept distinct rather than collapsed into
- * worked or not. The route's wording is deliberate — it names what was refused
- * and what to do instead — so it is passed up rather than replaced, and there is
- * no path through this module that could hold a file's contents: the walk
- * answers with names and paths, never with what is inside anything.
+ * Requests and answers, kept distinct rather than collapsed into worked or not.
+ * The route's wording is deliberate — it names what was refused and what to do
+ * instead — so it is passed up rather than replaced, and there is no path through
+ * this module that could hold a file's contents: the walk answers with names and
+ * paths, never with what is inside anything.
+ *
+ * **A path arriving here is one the server is going to resolve.** The reader never
+ * types one and the Model's own spelling reaches us as relative to a Root this
+ * module has never heard of. So nothing here resolves, normalises or checks a
+ * path — it forwards what was said and reports what came back, which is the only
+ * shape in which the browser and the server cannot disagree about where a Grant
+ * lands.
  */
 
 const listingSchema = z.object({
@@ -27,9 +34,21 @@ export type RootListing =
 
 export type RootAnswer =
   /** The folder is recorded, and this is where the server says it is. */
-  | { status: "declared"; root: string }
+  | { status: "declared"; root: string; grants: string[] }
   /** There is no Root, or the file holding one could not be understood. */
-  | { status: "none"; malformed: boolean }
+  | { status: "none"; malformed: boolean; grants: string[] }
+  | { status: "refused"; message: string };
+
+/**
+ * What recording or taking back a Grant came back with.
+ *
+ * Not a `RootAnswer`, because neither of these changes the Root: a refusal to
+ * grant a path says nothing about whether a folder is chosen, and folding the two
+ * together would leave a caller unable to tell "the Grant was refused" from "the
+ * Root went away", which are different facts about a different decision.
+ */
+export type GrantAnswer =
+  | { status: "granted"; grants: string[] }
   | { status: "refused"; message: string };
 
 /** The route could not be reached at all, which is not the same as a refusal. */
@@ -102,21 +121,46 @@ export function readRootAnswer({ status, body }: { status: number; body: unknown
   if (status !== 200) return refused(status, body);
 
   const parsed = z
-    .object({ root: z.string().nullable(), malformed: z.boolean().optional() })
+    .object({
+      root: z.string().nullable(),
+      // Defaulted rather than required, because a server that has never granted
+      // anything is answering truthfully about a Root with none of them — and a
+      // reader who has granted nothing should not be told the route is broken.
+      grants: z.array(z.string()).default([]),
+      malformed: z.boolean().optional(),
+    })
     .safeParse(body);
 
   if (!parsed.success) {
     return { status: "refused", message: "The app's Reading Root route answered in an unexpected form." };
   }
 
+  const { root, grants } = parsed.data;
+
   // `malformed` is kept rather than folded into "none": a Root that reads as
   // absent with nothing said is a Root that silently stopped being read, and the
   // reader is the one who can fix it.
-  if (parsed.data.root === null) {
-    return { status: "none", malformed: parsed.data.malformed ?? false };
+  if (root === null) {
+    return { status: "none", malformed: parsed.data.malformed ?? false, grants };
   }
 
-  return { status: "declared", root: parsed.data.root };
+  return { status: "declared", root, grants };
+}
+
+/** Reads an answer about a Grant off the route's answer. */
+export function readGrantAnswer({ status, body }: { status: number; body: unknown }): GrantAnswer {
+  if (status !== 200) return refused(status, body);
+
+  const parsed = z.object({ grants: z.array(z.string()) }).safeParse(body);
+
+  // No default here, unlike the Root's answer: a caller that pressed "always
+  // allow" needs to know the list now in force, and a body without one is a
+  // server that did not answer the question it was asked.
+  if (!parsed.success) {
+    return { status: "refused", message: "The app's Reading Root route answered in an unexpected form." };
+  }
+
+  return { status: "granted", grants: parsed.data.grants };
 }
 
 export async function readRoot(): Promise<RootAnswer> {
@@ -129,4 +173,27 @@ export async function declareRoot(folder: string): Promise<RootAnswer> {
 
 export async function forgetRoot(): Promise<RootAnswer> {
   return readRootAnswer(await post({ action: "forget" }));
+}
+
+/**
+ * Asks for a path to be allowed from now on.
+ *
+ * The path is whatever the Model wrote, not a resolved one: the browser has no
+ * Root and cannot resolve anything, and the route does it the same way the
+ * approval policy does. So the Grant that ends up recorded is for the file the
+ * reader was shown, rather than for wherever the browser guessed it was.
+ */
+export async function grantPath(asked: string): Promise<GrantAnswer> {
+  return readGrantAnswer(await post({ action: "grant", path: asked }));
+}
+
+/**
+ * Asks for a recorded path to be taken back.
+ *
+ * Named exactly as the route listed it, and never resolved first — the route
+ * compares exactly too, and a caller that normalised the string here would be
+ * asking to remove a Grant under a name the file does not hold.
+ */
+export async function revokeGrant(recorded: string): Promise<GrantAnswer> {
+  return readGrantAnswer(await post({ action: "revoke", path: recorded }));
 }
