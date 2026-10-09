@@ -81,7 +81,7 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
       </div>
 
       <p role="status" className="text-xs text-zinc-500">
-        {describe(answer, chosen)}
+        {sayAboutChosen(answer, chosen)}
       </p>
 
       {keyEntryFor !== null && <KeyEntry endpointId={keyEntryFor} onStored={onStored} />}
@@ -92,11 +92,15 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
 /**
  * Says one thing about the chosen Endpoint, so the control is never silent.
  *
+ * Named for what it does rather than `describe`, which reads as the test
+ * framework's global and invites a reader looking for a test to find this
+ * instead.
+ *
  * The unconfigured case names the environment variable to set, because that is
  * the whole answer to "why isn't this working?" and reading source to find it
  * would be a poor thing to ask of someone setting up an Endpoint.
  */
-function describe(
+function sayAboutChosen(
   answer: { statuses: readonly EndpointStatus[]; trouble: string | null } | null,
   chosen: EndpointStatus | undefined,
 ): string {

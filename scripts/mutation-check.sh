@@ -8,7 +8,11 @@
 # Files are restored after every mutation and again on the way out, including on
 # an interrupt, so the tree is left as it was found.
 #
-#   zsh scripts/mutation-check.sh
+#   pnpm test:mutation
+#
+# Also runnable directly as `zsh scripts/mutation-check.sh`. Both are the same
+# script; the package.json entry exists so it is discoverable from the other
+# gates rather than hidden in scripts/.
 set -u
 cd "$(dirname "$0")/.."
 

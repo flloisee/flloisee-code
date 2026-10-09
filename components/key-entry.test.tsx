@@ -283,6 +283,33 @@ describe("which Endpoints are Configured", () => {
   });
 });
 
+describe("a Credential written but not yet in use", () => {
+  // Neither of the two outcomes above: the file has it, and the environment is
+  // not serving a different value — it is serving nothing at all. The route says
+  // so with `applied: false, shadowedByShell: false`, which is a real state: a
+  // loader that rebuilds process.env from its own snapshot drops a name the
+  // snapshot never had. Saying "no restart needed" here would be the same lie as
+  // the shadowed case, so it gets its own wording rather than the stored one.
+  const notApplied = () => ({
+    status: 200,
+    body: { envVar: "GROQ_API_KEY", applied: false, shadowedByShell: false },
+  });
+
+  it("is not reported as stored, since the environment is not carrying it yet", async () => {
+    renderApp("groq", undefined, notApplied);
+
+    const dialog = await openKeyEntry();
+    await typeAndSubmit(dialog, "gsk-written-but-not-live");
+
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
+
+    const said = within(dialog).getByRole("alert").textContent ?? "";
+    expect(said).toContain("GROQ_API_KEY");
+    // The one sentence that would be a lie: the value is not in use.
+    expect(said).not.toContain("no restart needed");
+  });
+});
+
 describe("a Credential a shell export is shadowing", () => {
   // The file was written, so it is stored — and the shell is serving a different
   // value, so the Endpoint is not being called with what was just typed. This is

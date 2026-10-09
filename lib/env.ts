@@ -44,16 +44,19 @@ const writeTempFile: TempFileWriter = (tempPath, contents) =>
 /**
  * Whether a value can be stored in the environment file and read back as itself.
  *
- * Three characters cannot, and all three were measured against the installed
- * loader rather than reasoned about:
+ * Five characters cannot, and each was measured against the installed loader
+ * rather than reasoned about:
  *
  * - `\n` and `\r` end the entry, so what follows becomes a second assignment.
  * - `"` cannot be represented: the file holds `\"`, and the loader does not undo
  *   that escape, so the value comes back with the backslash still in it.
  * - `$` is interpolated against the process environment on load, so
  *   `sk-$USER` is read back as whatever `USER` happens to be.
+ * - `\0` truncates: `a\0b` was measured coming back as `a`, the loader stopping
+ *   at the null byte. No Credential contains one; it is refused rather than
+ *   silently shortened.
  *
- * The last two are the dangerous ones, because a Credential that does not
+ * The last three are the dangerous ones, because a Credential that does not
  * survive the round trip is stored and looks stored, and then fails at the
  * Endpoint with nothing to connect it to what was typed. Refusing is the honest
  * answer; an API key containing none of these is the ordinary case, and one that

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
+
 /**
  * Key Entry, from the interface.
  *
@@ -35,13 +37,20 @@ const keyEntryResponseSchema = z.object({
  *
  * - `stored`: the environment carries what was just written.
  * - `shadowed`: the file was written, but a shell export is serving a different
- *   value. It looks stored and is not in use, which is the one outcome where a
- *   bare success would be a lie.
+ *   value.
+ * - `notApplied`: the file was written and the environment is serving nothing
+ *   for that name, so the Endpoint is still not Configured.
  * - `refused`: nothing was written, and the route says why in words worth showing.
+ *
+ * The two middle outcomes are both "written but not in use", and saying "no
+ * restart needed" for either would send someone off to send a message and fail.
+ * They are told apart because the fix differs: one is in the reader's shell,
+ * the other is not, so the advice differs too.
  */
 export type KeyEntryAnswer =
   | { status: "stored"; envVar: string }
   | { status: "shadowed"; envVar: string }
+  | { status: "notApplied"; envVar: string }
   | { status: "refused"; message: string };
 
 /**
@@ -59,7 +68,7 @@ export function readKeyEntryAnswer({
   if (status !== 200) {
     // The route's wording is deliberate — it names what was refused and why —
     // so it is shown rather than replaced.
-    const message = readError(body);
+    const message = readRouteError(body);
     if (message) return { status: "refused", message };
 
     return {
@@ -80,9 +89,17 @@ export function readKeyEntryAnswer({
     };
   }
 
-  return parsed.data.shadowedByShell
-    ? { status: "shadowed", envVar: parsed.data.envVar }
-    : { status: "stored", envVar: parsed.data.envVar };
+  // Three distinct truths, read off the two flags together rather than one of
+  // them alone: `applied` says the environment is not carrying what was written,
+  // and `shadowedByShell` says whether something else is standing in the way.
+  // Treating "not applied" as "stored" is the lie this exists to avoid.
+  if (!parsed.data.applied) {
+    return parsed.data.shadowedByShell
+      ? { status: "shadowed", envVar: parsed.data.envVar }
+      : { status: "notApplied", envVar: parsed.data.envVar };
+  }
+
+  return { status: "stored", envVar: parsed.data.envVar };
 }
 
 /**
@@ -110,22 +127,5 @@ export async function submitCredential({
     return readKeyEntryAnswer({ status: 0, body: null });
   }
 
-  return readKeyEntryAnswer({ status: response.status, body: await readBody(response) });
-}
-
-async function readBody(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    // A proxy or an error page answering in place of the route is not a Key Entry
-    // outcome, and its bytes are not worth parsing for one.
-    return null;
-  }
-}
-
-function readError(body: unknown): string | undefined {
-  if (typeof body !== "object" || body === null) return undefined;
-
-  const error = (body as Record<string, unknown>).error;
-  return typeof error === "string" && error.length > 0 ? error : undefined;
+  return readKeyEntryAnswer({ status: response.status, body: await readRouteJSON(response) });
 }
