@@ -2,11 +2,12 @@
 
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { isToolCall } from "@/lib/chat/tool-part";
 import type { SavedConversation } from "@/lib/conversations/store";
 
+import { useFileMenu } from "./file-menu";
 import { Markdown } from "./markdown";
 import { ToolCall } from "./tool-call";
 
@@ -129,6 +130,36 @@ function renderParts(message: UIMessage, fromUser: boolean): ReactNode[] {
   return blocks;
 }
 
+/**
+ * Where an `@` being typed is, and what has been written after it.
+ *
+ * Carried rather than worked out at the moment of choosing, because the
+ * insertion has to replace exactly the words the `@` opened and nothing else —
+ * including anything the reader has already typed past the caret, which stays
+ * where it was.
+ */
+type Mention = { start: number; query: string };
+
+/**
+ * The `@` the caret is inside, if it is inside one.
+ *
+ * Two rules, and both are about not interrupting a sentence. An `@` has to start
+ * a word, or `me@example.com` opens a menu over an address. And it has to be
+ * followed by no space, because a mention ends at the first one — that is what
+ * makes the words after it a name being typed rather than the rest of a message
+ * the reader happens to have started with a character.
+ */
+function mentionAt(text: string, caret: number): Mention | null {
+  const before = text.slice(0, caret);
+  const at = before.lastIndexOf("@");
+  if (at === -1) return null;
+
+  if (at > 0 && !/\s/.test(before[at - 1] ?? "")) return null;
+  if (/\s/.test(before.slice(at + 1))) return null;
+
+  return { start: at, query: before.slice(at + 1) };
+}
+
 export function Chat({
   endpointId,
   endpointName,
@@ -138,6 +169,64 @@ export function Chat({
   onStartNew,
 }: ChatProps) {
   const [input, setInput] = useState("");
+
+  /**
+   * The composer, and the caret it owns.
+   *
+   * The field is reached for rather than driven: it is where the menu's keys
+   * arrive, and it is the only thing that knows where the caret was. Nothing here
+   * ever takes focus away from it — see `useFileMenu`, whose whole design is
+   * that the reader's caret stays where they left it.
+   */
+  const field = useRef<HTMLTextAreaElement>(null);
+  const [mention, setMention] = useState<Mention | null>(null);
+  /**
+   * Where the caret should land once the next value has been rendered, or `null`
+   * when nothing is owed.
+   *
+   * A ref rather than state, because this is not something to re-render for: it is
+   * a note left for the DOM after React has written the value, read once and
+   * cleared. Held as state it would be a second render that exists only to put a
+   * caret in the right place.
+   */
+  const caretOwed = useRef<number | null>(null);
+
+  const menu = useFileMenu({
+    query: mention?.query ?? null,
+    onPick: insertPath,
+  });
+
+  // The caret is placed after React has written the value and before the browser
+  // has painted, so the reader picks up typing from the end of what was inserted
+  // rather than from wherever the browser happened to leave it. Every render is
+  // checked because the value is React's to write, and a caret set before React
+  // has heard of the new value is a caret React overwrites.
+  useEffect(() => {
+    const owed = caretOwed.current;
+    if (owed === null) return;
+    caretOwed.current = null;
+    field.current?.setSelectionRange(owed, owed);
+  });
+
+  /**
+   * Puts a chosen path in the message.
+   *
+   * The `@` and the words after it are replaced; everything the reader wrote
+   * around them is left exactly as it was, including anything past the caret. A
+   * space follows the path because a name in a message ends there, and the reader
+   * is very often going to want to write a word next.
+   */
+  function insertPath(chosen: string) {
+    if (mention === null) return;
+
+    const caret = field.current?.selectionStart ?? input.length;
+    const before = input.slice(0, mention.start);
+    const after = input.slice(caret);
+
+    setInput(`${before}${chosen} ${after}`);
+    setMention(null);
+    caretOwed.current = before.length + chosen.length + 1;
+  }
 
   const { messages, sendMessage, status, stop, error, setMessages, regenerate } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -228,8 +317,11 @@ export function Chat({
 
       {/* The composer wraps rather than shrinking: at a narrow width the field
           takes its own full-width row and the controls sit beneath it, so no
-          button label is ever squeezed into two lines or clipped. */}
-      <div className="flex flex-wrap items-end gap-2 border-t border-rule bg-paper px-4 py-3 sm:px-6">
+          button label is ever squeezed into two lines or clipped. `relative` is
+          for the menu alone — it is placed against this box rather than the
+          window, so it stays over the composer the reader is typing into however
+          far down the page the Conversation has grown. */}
+      <div className="relative flex flex-wrap items-end gap-2 border-t border-rule bg-paper px-4 py-3 sm:px-6">
         {/* What a message written here will be sent to, said where it is written.
             The Endpoint and Model are chosen in Settings and a Conversation runs
             long past the choosing, so the pair the reader is actually talking to
@@ -253,10 +345,42 @@ export function Chat({
           {modelId && <span className="font-mono"> · {modelId}</span>}
         </p>
 
+        {/* The menu, which is a popup over the composer and never a dialog
+            beside it. It is rendered here so it sits inside the box the popup is
+            placed against, and unmounted rather than hidden whenever there is no
+            `@` being typed — a menu left on screen with nothing behind it is a
+            menu offering a Root the reader has stopped asking about. */}
+        {menu.popup}
+
         <textarea
+          ref={field}
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => {
+            const value = event.target.value;
+            // Typing puts a dismissed menu back, rather than leaving a reader
+            // who pressed Escape unable to bring it up again without starting the
+            // mention over.
+            menu.typing();
+            setInput(value);
+            // Read from the caret rather than from the end of the text, because a
+            // reader who has moved back up the message is editing there and a menu
+            // that followed the end of the line would be answering a different
+            // sentence.
+            setMention(mentionAt(value, event.target.selectionStart ?? value.length));
+          }}
+          onBlur={() => setMention(null)}
           onKeyDown={(event) => {
+            // Asked first, and only while the menu is open — so a key the menu has
+            // no use for, and every key when it is closed, still does what it does
+            // in a textarea.
+            if (menu.handleKey(event.key)) {
+              // Taken, not merely seen: an arrow key would move the caret out from
+              // under the menu, and an Enter would send a message the reader was
+              // still choosing a name inside.
+              event.preventDefault();
+              return;
+            }
+
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               handleSubmit();
@@ -265,6 +389,17 @@ export function Chat({
           placeholder="Send a message…"
           rows={1}
           aria-label="Message"
+          // The combobox wiring, in full, because this is the case it was written
+          // for: the field keeps the focus and the caret throughout, and the row
+          // being chosen is named from here rather than by anything that took
+          // focus to hold it. `aria-expanded` is `false` the whole time no `@` is
+          // being typed, which is most of a reader's time in this field.
+          role="combobox"
+          aria-expanded={menu.open}
+          aria-haspopup="listbox"
+          aria-autocomplete="list"
+          aria-controls={menu.open ? menu.listId : undefined}
+          aria-activedescendant={menu.activeId}
           // `resize-y` rather than none: a one-row box cannot hold a long
           // message, and the reader should be able to make room for it.
           className="hm-field order-1 max-h-40 basis-full resize-y sm:order-none sm:max-h-none sm:basis-auto sm:flex-1"
