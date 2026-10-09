@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { KeyEntry } from "@/components/key-entry";
+import { keyEntryIsAvailable } from "@/lib/endpoints/key-entry";
 import { requestEndpoints } from "@/lib/endpoints/request";
 import type { EndpointStatus } from "@/lib/endpoints/status";
 
@@ -27,6 +29,11 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
     trouble: string | null;
   } | null>(null);
 
+  // Bumped after a Key Entry, to ask the Registry again. The Environment changed
+  // underneath a running server, so what this list last said is stale — and the
+  // Endpoint only shows as Configured because of that second read.
+  const [reRead, setReRead] = useState(0);
+
   useEffect(() => {
     let current = true;
 
@@ -37,10 +44,18 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
     return () => {
       current = false;
     };
-  }, []);
+  }, [reRead]);
+
+  const onStored = useCallback(() => setReRead((previous) => previous + 1), []);
 
   const statuses = answer?.statuses ?? [];
   const chosen = statuses.find((status) => status.id === endpointId);
+
+  // Only a Cloud Endpoint needs a Credential, and only where Key Entry can run:
+  // offering the button for a Local Endpoint, or outside development, would be
+  // offering a dialog that cannot help.
+  const keyEntryFor =
+    keyEntryIsAvailable() && chosen?.credentialEnvVar != null ? chosen.id : null;
 
   return (
     <div className="flex flex-col gap-1.5 border-b border-black/[.08] pb-3 dark:border-white/[.15]">
@@ -68,6 +83,8 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
       <p role="status" className="text-xs text-zinc-500">
         {describe(answer, chosen)}
       </p>
+
+      {keyEntryFor !== null && <KeyEntry endpointId={keyEntryFor} onStored={onStored} />}
     </div>
   );
 }
@@ -90,7 +107,10 @@ function describe(
   if (chosen === undefined) return "Choose an Endpoint to hold a Conversation.";
 
   if (chosen.configured) {
-    return chosen.credentialEnvVar === undefined
+    // Compared against null rather than undefined: the Registry route sends a
+    // Local Endpoint's variable as JSON null, and a Local Endpoint says so here
+    // rather than being left indistinguishable from a Cloud one that is set up.
+    return chosen.credentialEnvVar === null
       ? `${chosen.name} runs on this machine and needs no Credential.`
       : `${chosen.name} is Configured.`;
   }
