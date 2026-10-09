@@ -17,6 +17,7 @@ import { useFileMenu } from "./file-menu";
 import { Markdown } from "./markdown";
 import { useNamedFiles } from "./named-files";
 import { ToolCall } from "./tool-call";
+import { mentionAt, mentionRuns, type MentionRun } from "@/lib/roots/mention";
 import { useRootReadout } from "@/lib/roots/root-readout";
 
 export type ChatProps = {
@@ -139,33 +140,43 @@ function renderParts(message: UIMessage, fromUser: boolean): ReactNode[] {
 }
 
 /**
- * Where an `@` being typed is, and what has been written after it.
+ * The mention the caret is inside, left open.
  *
- * Carried rather than worked out at the moment of choosing, because the
- * insertion has to replace exactly the words the `@` opened and nothing else —
- * including anything the reader has already typed past the caret, which stays
- * where it was.
+ * "Open" is the whole of the difference from the runs in `mention.ts`: this is a
+ * mention mid-typing, waiting to be replaced by a path, and it has to carry where
+ * it began because the insertion has to replace exactly the words the `@` opened
+ * and nothing else — including anything the reader has already typed past the
+ * caret, which stays where it was.
  */
-type Mention = { start: number; query: string };
+type OpenMention = { start: number; query: string };
 
 /**
- * The `@` the caret is inside, if it is inside one.
+ * The message, cut into the names in it and the words around them.
  *
- * Two rules, and both are about not interrupting a sentence. An `@` has to start
- * a word, or `me@example.com` opens a menu over an address. And it has to be
- * followed by no space, because a mention ends at the first one — that is what
- * makes the words after it a name being typed rather than the rest of a message
- * the reader happens to have started with a character.
+ * **Every character appears once, in order, and nothing else is added.** This is
+ * not a list of what the message is about drawn beside the message: it is the
+ * message, with some of its runs wrapped, and a copy that dropped a space or
+ * folded two lines into one would put every name after it out of place — so the
+ * runs are cut rather than the words chosen, and the pieces between them are
+ * everything the runs do not cover.
  */
-function mentionAt(text: string, caret: number): Mention | null {
-  const before = text.slice(0, caret);
-  const at = before.lastIndexOf("@");
-  if (at === -1) return null;
+function drawn(text: string, runs: MentionRun[]): ReactNode {
+  const pieces: ReactNode[] = [];
+  let at = 0;
 
-  if (at > 0 && !/\s/.test(before[at - 1] ?? "")) return null;
-  if (/\s/.test(before.slice(at + 1))) return null;
+  runs.forEach((run, index) => {
+    if (run.start > at) pieces.push(text.slice(at, run.start));
+    pieces.push(
+      <span key={index} data-mention="" className="hm-mention">
+        {text.slice(run.start, run.end)}
+      </span>,
+    );
+    at = run.end;
+  });
 
-  return { start: at, query: before.slice(at + 1) };
+  if (at < text.length) pieces.push(text.slice(at));
+
+  return <>{pieces}</>;
 }
 
 export function Chat({
@@ -178,7 +189,7 @@ export function Chat({
 }: ChatProps) {
   const [input, setInput] = useState("");
 
-/**
+  /**
    * The composer, and the caret it owns.
    *
    * The field is reached for rather than driven: it is where the menu's keys
@@ -187,7 +198,17 @@ export function Chat({
    * that the reader's caret stays where they left it.
    */
   const field = useRef<HTMLTextAreaElement>(null);
-  const [mention, setMention] = useState<Mention | null>(null);
+  /**
+   * The drawn copy of the message, over the field rather than beside it.
+   *
+   * A second box holding the same characters as the field, so a name in the
+   * message can be drawn heavier than the words around it — which a textarea
+   * cannot do for itself, because its text is one run with one weight. It is
+   * reached for only to scroll: the field is the message, and everything the
+   * reader does to the message goes to the field.
+   */
+  const mirror = useRef<HTMLDivElement>(null);
+  const [mention, setMention] = useState<OpenMention | null>(null);
   /**
    * Where the caret should land once the next value has been rendered, or `null`
    * when nothing is owed.
@@ -238,6 +259,13 @@ export function Chat({
   // checked because the value is React's to write, and a caret set before React
   // has heard of the new value is a caret React overwrites.
   useEffect(() => {
+    // The drawn copy is kept at the field's scroll before the caret is placed,
+    // because the field can have scrolled on its own to write this value: a
+    // message that grew past the cap brings the caret's line into view, and a
+    // mirror left where the value used to be short draws the reader's own words
+    // somewhere they did not type them.
+    scrollMirror();
+
     const owed = caretOwed.current;
     if (owed === null) return;
     caretOwed.current = null;
@@ -245,12 +273,34 @@ export function Chat({
   });
 
   /**
+   * Holds the drawn copy at the field's scroll.
+   *
+   * The only thing the mirror is ever told to do. It is two boxes rather than one
+   * only so a name can be drawn heavier than the words around it, and the price of
+   * that is that they can be scrolled apart — which is invisible until a reader has
+   * scrolled back up the message to re-read a line and finds the names on it drawn
+   * where the lines above them are.
+   */
+  function scrollMirror(): void {
+    const drawn = mirror.current;
+    const typed = field.current;
+    if (drawn !== null && typed !== null) drawn.scrollTop = typed.scrollTop;
+  }
+
+  /**
    * Puts a chosen path in the message.
    *
-   * The `@` and the words after it are replaced; everything the reader wrote
-   * around them is left exactly as it was, including anything past the caret. A
-   * space follows the path because a name in a message ends there, and the reader
-   * is very often going to want to write a word next.
+   * The words after the `@` are replaced and the `@` itself stays, because it is
+   * the reader's own mark on the name: it is what says, later in the same sentence
+   * and to the row of files above the field, which words in a message are files,
+   * and dropping it would leave a picked name indistinguishable from a path the
+   * reader typed out from memory. Everything around it is left exactly as it was,
+   * including anything past the caret. A space follows, because a name in a message
+   * ends there and the reader is very often going to want a word next.
+   *
+   * What lands is `@src/util.ts ` rather than `src/util.ts `, so `named-path` takes
+   * the `@` off again on the way to the route — the same trim a pasted `@path`
+   * goes through, which is what keeps picking a file and typing one one action.
    */
   function insertPath(chosen: string) {
     if (mention === null) return;
@@ -259,10 +309,10 @@ export function Chat({
     const before = input.slice(0, mention.start);
     const after = input.slice(caret);
 
-    setInput(`${before}${chosen} ${after}`);
+    setInput(`${before}@${chosen} ${after}`);
     setMention(null);
     setNamedWithAt(true);
-    caretOwed.current = before.length + chosen.length + 1;
+    caretOwed.current = before.length + chosen.length + 2;
   }
 
   const {
@@ -323,7 +373,9 @@ export function Chat({
    * which is the distinction `isAwaitingApproval` draws and the reason it is not
    * simply "is any part approved-pending".
    */
-  const awaitingAnswer = messages.some((message) => message.parts.some(isAwaitingApproval));
+  const awaitingAnswer = messages.some((message) =>
+    message.parts.some(isAwaitingApproval),
+  );
 
   /**
    * The reader's answer, sent only when there is a question to answer it to.
@@ -370,7 +422,8 @@ export function Chat({
   // the last message alone: a Conversation with an outstanding question anywhere
   // in it is a Conversation whose history the Endpoint will refuse, and the last
   // message is not where that stops being true.
-  const awaitingResponse = status === "error" && messages.at(-1)?.role === "user";
+  const awaitingResponse =
+    status === "error" && messages.at(-1)?.role === "user";
   const canRegenerate =
     !inProgress &&
     !awaitingAnswer &&
@@ -402,6 +455,25 @@ export function Chat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* **The Turns are the one thing on screen that scrolls**, now that the
+          document itself does not: `globals.css` refuses to scroll `html` and
+          `body`, which are held at exactly the window's height, so this box is
+          where a long Conversation goes — and the composer below is a flex child
+          of the same column rather than anything riding the document, so it
+          stays at the foot of the window however far this has been scrolled.
+
+          That makes the height above it load-bearing rather than incidental.
+          `flex-1` is what fills the column the shell leaves once the header,
+          the error line and the composer have had theirs, and `min-h-0` on the
+          parent above is what lets the column be that short in the first place —
+          a flex item that refuses to shrink would push the composer's own bottom
+          edge out of the window instead.
+
+          No `min-h-0` here, and that is not an oversight: a scroll container's
+          automatic minimum size is zero whatever its height, which is exactly
+          the allowance that lets this shrink below the Turns inside it. The
+          sibling in `conversation-list` spells it out anyway, and a class that
+          changes nothing should not be copied a second time. */}
       {/* `hm-scroll` reserves the scrollbar's gutter whether or not one is
           drawn, so the Turns do not slide sideways the moment the Theme
           changes — or the moment the first Turn makes this scrollable. */}
@@ -450,9 +522,12 @@ export function Chat({
                 as `data-turn`: it names this block so a test can find the greeting
                 without asserting a size or a colour. */}
             {messages.length === 0 && (
-              <div data-greeting className="mx-auto my-auto max-w-[52ch] text-center">
+              <div
+                data-greeting
+                className="mx-auto my-auto max-w-[52ch] text-center"
+              >
                 <p className="font-display text-lg font-semibold tracking-tight text-ink">
-                  Hello.
+                  Hello!
                 </p>
                 <p className="mt-2 text-sm text-muted">
                   Send a message to begin a Conversation with {endpointName}.
@@ -573,66 +648,114 @@ export function Chat({
               the answer. */}
           {!menu.open && named.panel}
 
-          <textarea
-            ref={field}
-            value={input}
-            onChange={(event) => {
-              const value = event.target.value;
-              // Typing puts a dismissed menu back, rather than leaving a reader
-              // who pressed Escape unable to bring it up again without starting the
-              // mention over. The same goes for a refusal about a named file: a
-              // reader who has read it and carried on typing has read it.
-              menu.typing();
-              named.typing();
-              setInput(value);
-              // Read from the caret rather than from the end of the text, because a
-              // reader who has moved back up the message is editing there and a menu
-              // that followed the end of the line would be answering a different
-              // sentence.
-              setMention(mentionAt(value, event.target.selectionStart ?? value.length));
-            }}
-            onBlur={() => setMention(null)}
-            onKeyDown={(event) => {
-              // Asked first, and only while the menu is open — so a key the menu has
-              // no use for, and every key when it is closed, still does what it does
-              // in a textarea.
-              if (menu.handleKey(event.key)) {
-                // Taken, not merely seen: an arrow key would move the caret out from
-                // under the menu, and an Enter would send a message the reader was
-                // still choosing a name inside.
-                event.preventDefault();
-                return;
-              }
+          {/* The field and the drawn copy of it, one box painted twice.
 
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder="Send a message…"
-            rows={1}
-            aria-label="Message"
-            // The combobox wiring, in full, because this is the case it was written
-            // for: the field keeps the focus and the caret throughout, and the row
-            // being chosen is named from here rather than by anything that took
-            // focus to hold it. `aria-expanded` is `false` the whole time no `@` is
-            // being typed, which is most of a reader's time in this field.
-            role="combobox"
-            aria-expanded={menu.open}
-            aria-haspopup="listbox"
-            aria-autocomplete="list"
-            aria-controls={menu.open ? menu.listId : undefined}
-            aria-activedescendant={menu.activeId}
-            // `resize-y` rather than none: a one-row box cannot hold a long
-            // message, and the reader should be able to make room for it.
-            className="hm-field order-1 max-h-40 basis-full resize-y sm:order-none sm:max-h-none sm:basis-auto sm:flex-1"
-          />
+              A textarea's text is a single run, so it is a single weight: every
+              word in the message would be drawn the same however it was named.
+              The names are what a reader most needs to find again once the
+              sentence has grown around them, and once the row of files above the
+              field has gone — so the message is drawn a second time over the field
+              with the names heavier, and the field's own text is made invisible.
+
+              **The field stays the message.** The value, the caret, the selection,
+              the keyboard and the undo stack are all the textarea's, and nothing
+              here takes them: a control that reads a reader's keystrokes is a
+              control that can lose them. The copy is `aria-hidden` and takes no
+              pointer, so it is drawn and never heard from and never clicked on, and
+              the two scroll together because a copy left behind by a scroll would
+              draw the reader's own words somewhere they did not type them.
+
+              The layout classes are on the wrapper rather than on the field,
+              because the wrapper is what the row lays out and the copy has to fill
+              exactly what the field fills.
+
+              **`flex` on the wrapper is not decoration.** A `<textarea>` is
+              `inline-block` by default, so as the first thing in a plain block box it
+              sat on a line and the box grew by the line's descent below it — seven
+              pixels of nothing under the field, and the field no longer level with
+              the buttons it sits beside. As a flex item it is out of the line box
+              and the wrapper is exactly as tall as the field. */}
+          <div className="relative flex order-1 basis-full sm:order-none sm:basis-auto sm:flex-1">
+            <textarea
+              ref={field}
+              value={input}
+              onChange={(event) => {
+                const value = event.target.value;
+                // Typing puts a dismissed menu back, rather than leaving a reader
+                // who pressed Escape unable to bring it up again without starting the
+                // mention over. The same goes for a refusal about a named file: a
+                // reader who has read it and carried on typing has read it.
+                menu.typing();
+                named.typing();
+                setInput(value);
+                // Read from the caret rather than from the end of the text, because a
+                // reader who has moved back up the message is editing there and a menu
+                // that followed the end of the line would be answering a different
+                // sentence.
+                setMention(
+                  mentionAt(value, event.target.selectionStart ?? value.length),
+                );
+              }}
+              onBlur={() => setMention(null)}
+              onScroll={scrollMirror}
+              onKeyDown={(event) => {
+                // Asked first, and only while the menu is open — so a key the menu has
+                // no use for, and every key when it is closed, still does what it does
+                // in a textarea.
+                if (menu.handleKey(event.key)) {
+                  // Taken, not merely seen: an arrow key would move the caret out from
+                  // under the menu, and an Enter would send a message the reader was
+                  // still choosing a name inside.
+                  event.preventDefault();
+                  return;
+                }
+
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder="Send a message…"
+              rows={1}
+              aria-label="Message"
+              // The combobox wiring, in full, because this is the case it was written
+              // for: the field keeps the focus and the caret throughout, and the row
+              // being chosen is named from here rather than by anything that took
+              // focus to hold it. `aria-expanded` is `false` the whole time no `@` is
+              // being typed, which is most of a reader's time in this field.
+              role="combobox"
+              aria-expanded={menu.open}
+              aria-haspopup="listbox"
+              aria-autocomplete="list"
+              aria-controls={menu.open ? menu.listId : undefined}
+              aria-activedescendant={menu.activeId}
+              // `resize-y` rather than none: a one-row box cannot hold a long
+              // message, and the reader should be able to make room for it.
+              //
+              // `hm-field--behind-mirror` is the whole of what the drawn copy costs
+              // this element: its own text is invisible and the caret keeps its
+              // colour, so the field is left holding everything a field is *for*.
+              className="hm-field hm-field--behind-mirror relative z-0 max-h-40 resize-y sm:max-h-none"
+            />
+
+            {/* The message again, drawn. `aria-hidden` because it is a copy of
+                something already announced, and `pointer-events` off because it
+                covers the field: a copy that took clicks would take keys too. */}
+            <div
+              aria-hidden
+              ref={mirror}
+              data-mirror
+              className="hm-mirror absolute inset-0 z-10"
+            >
+              {drawn(input, mentionRuns(input))}
+            </div>
+          </div>
 
           <button
             type="button"
             onClick={startFreshConversation}
             disabled={messages.length === 0}
-            className="hm-btn hm-btn--quiet order-2 sm:order-none"
+            className="hm-btn hm-btn--quiet order-2"
           >
             New
           </button>
@@ -648,8 +771,13 @@ export function Chat({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={inProgress || awaitingAnswer || named.open > 0 || input.trim().length === 0}
-            className="hm-btn hm-btn--primary order-3 sm:order-4 sm:ml-auto"
+            disabled={
+              inProgress ||
+              awaitingAnswer ||
+              named.open > 0 ||
+              input.trim().length === 0
+            }
+            className="hm-btn hm-btn--primary order-3"
           >
             Send
           </button>
@@ -660,7 +788,7 @@ export function Chat({
             <button
               type="button"
               onClick={stop}
-              className="hm-btn order-4 sm:order-5"
+              className="hm-btn order-4"
             >
               Stop
             </button>
@@ -669,7 +797,7 @@ export function Chat({
               <button
                 type="button"
                 onClick={handleRegenerate}
-                className="hm-btn order-4 sm:order-5"
+                className="hm-btn order-4"
               >
                 Regenerate
               </button>
@@ -685,20 +813,25 @@ export function Chat({
               spoken for and a tip inside the box would be a second thing read
               before the reader has written anything of their own.
 
-              **On the row with the controls, between New and Send, once there is
-              room for it.** Centred there rather than hung off the left edge of a
-              row of its own, where it sat under New and read as a label for it; on
-              the controls' row it is level with the buttons it describes, which is
-              what a sentence about this composer should look like.
+              **On the row with the controls, at its right-hand end, once there
+              is room for it.** It used to sit between New and Send, which put a
+              sentence about writing a message between the two controls that act
+              on one: a reader reaching for Send read past the tip to find it, and
+              the tip was fitted into whatever gap two buttons left rather than
+              placed at all. The controls keep each other's company on the left of
+              the row and the sentence takes what is left, which is the one part of
+              the row nothing else has an opinion about.
 
-              That is what the orders are for. `sm:flex-1` is the space it takes to
-              be centred: it grows into whatever the field and the buttons leave,
-              sharing it with the field rather than squeezing it — which on a narrow
-              window means both are smaller and the sentence wraps to two lines. The
-              controls are each given an order one higher at `sm` than below it, so
-              the tip can take the place Send holds on a narrow window and sit ahead
-              of it on a wide one. Below `sm` there is no such space, so it keeps its
-              own full-width row under the buttons, where it is centred and legible.
+              That is what the orders are for, and they are the same at every
+              width — nothing here needs a second arrangement. `sm:flex-1` is the
+              space it takes to sit at that end: it grows into whatever the field
+              and the buttons leave, sharing it with the field rather than
+              squeezing it — which on a narrow window means both are smaller and
+              the sentence wraps to two lines. `sm:text-right` is what holds it to
+              the end of the row rather than letting it begin where the buttons
+              stop, which is a sentence hung off Send and reads as though it were
+              about it. Below `sm` there is no such space, so it keeps its own
+              full-width row under the buttons, where it is centred and legible.
 
               Said about "the folder you chose" rather than naming the folder, which
               the tip has no room for: the folder's own path is named at the other
@@ -716,10 +849,11 @@ export function Chat({
               // `self-center` rather than the row's `items-end`, so the sentence
               // sits level with the labels inside the buttons beside it rather
               // than level with their bottom edge.
-              className="order-5 basis-full text-center text-xs text-muted sm:order-3 sm:flex-1 sm:self-center"
+              className="order-5 basis-full text-center text-xs text-muted sm:flex-1 sm:self-center sm:text-right"
             >
-              Type <span className="font-mono text-ink-2">@</span> to name a file or folder from the
-              folder you chose, and what it holds is sent with your message.
+              Type <span className="font-mono text-ink-2">@</span> to name a
+              file or folder from the folder you chose, and what it holds is
+              sent with your message.
             </p>
           )}
         </div>

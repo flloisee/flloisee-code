@@ -199,3 +199,36 @@ describe("deleting", () => {
     expect(screen.getByRole("button", { name: /Delete How do I configure/ })).toBeTruthy();
   });
 });
+
+describe("how the row actions are drawn", () => {
+  it("draws each one, and does not spell it out beside the name", () => {
+    renderList();
+
+    // Two actions on each of two rows. The words would cost the Name more room
+    // than the drawing does, and a Saved Conversation is recognised by its Name.
+    expect(document.querySelectorAll("li svg")).toHaveLength(4);
+    expect(screen.queryByText("Rename")).toBeNull();
+    expect(screen.queryByText("Delete")).toBeNull();
+  });
+
+  it("hides the drawing from a screen reader and names the button instead", () => {
+    renderList();
+
+    const rename = screen.getByRole("button", { name: /Rename Why is the build red/ });
+
+    // The name says what the press does; the glyph repeating it would only make
+    // a reader hear everything twice.
+    expect(rename.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    // And it takes its colour from the button, so it follows the Theme — and the
+    // red a hovered delete turns — without a second set of values to keep in step.
+    expect(document.querySelector("li svg")?.getAttribute("stroke")).toBe("currentColor");
+  });
+
+  it("offers the same words on hover, since a glyph cannot say what it is for", () => {
+    renderList();
+
+    expect(
+      screen.getByRole("button", { name: /Delete Why is the build red/ }).getAttribute("title"),
+    ).toBe("Delete Why is the build red?");
+  });
+});

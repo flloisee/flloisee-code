@@ -83,7 +83,23 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      {/* `h-full`, not the `min-h-full` this used to be — the whole of the shell.
+       *
+       * A body sized by `min-height` is sized by its content, and that put the
+       * height of every `flex-1` and `min-h-0` below it up for grabs: the Turns
+       * column was exactly as tall as the Turns in it, `overflow-y-auto` on that
+       * column had nothing to scroll inside, and the document scrolled instead.
+       * A definite height inverts all three — the column is the space that is
+       * left, and the Turns scroll inside it.
+       *
+       * `globals.css` refuses to scroll this element; this is the other half of
+       * the same arrangement, and the two have to agree. Clipping alone would
+       * cut the composer off the foot of the window and leave the reader nothing
+       * to scroll to.
+       *
+       * Still a column flex, so `main` below stretches to whatever its margins
+       * leave rather than sizing itself to the wordmark it holds. */}
+      <body className="h-full flex flex-col">
         <script dangerouslySetInnerHTML={{ __html: APPLY_STORED_THEME }} />
         {children}
       </body>

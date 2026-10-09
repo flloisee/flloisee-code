@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 
+import { STROKE } from "@/components/glyph";
 import {
   DEFAULT_THEME,
   THEME_STORAGE_KEY,
@@ -114,39 +115,26 @@ const DESCRIBES: Record<Theme, { action: string; state: string }> = {
  * of a millimetre of horn, which is the part that reads as "crisp" at that
  * size and the part nobody can fix afterwards.
  *
+ * The first of those reasons is now answered by `glyph.ts`, which holds it for
+ * every drawing in the app; this is the reasoning it is answering.
+ *
  * Both share one stroke weight, one cap style and a 16-unit box, so they are a
  * matched pair rather than two drawings that happen to sit together. The moon
  * is a true crescent — an arc of a 6.4 circle with a 5.9 circle taken out of it,
  * 2.4 units off centre — which is what keeps it reading as a moon at 16px
  * instead of as a comma or a sliver.
- *
- * `currentColor` so the glyph inherits the button's colour and follows the
- * Theme without a second set of values to keep in step.
  */
 function Glyph({ theme }: { theme: Theme }) {
-  const shared = {
-    viewBox: "0 0 16 16",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.5,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    // The button's accessible name already says what the glyph is for, so
-    // announcing it again would just be noise read out twice.
-    "aria-hidden": true,
-    focusable: false,
-  } as const;
-
   if (theme === "dark") {
     return (
-      <svg {...shared}>
+      <svg {...STROKE}>
         <path d="M13.97 10.29A6.4 6.4 0 0 1 5.71 2.03A5.9 5.9 0 1 0 13.97 10.29Z" />
       </svg>
     );
   }
 
   return (
-    <svg {...shared}>
+    <svg {...STROKE}>
       <circle cx="8" cy="8" r="3.25" />
       <path d="M8 1.75v2M8 12.25v2M1.75 8h2M12.25 8h2M3.58 3.58 5 5M11 5l1.42-1.42M12.42 12.42 11 11M5 11l-1.42 1.42" />
     </svg>

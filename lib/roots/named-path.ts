@@ -87,8 +87,9 @@ function asPath(token: string): string | null {
   // The set is what a sentence puts next to a word: quotes, brackets, and the
   // stops that end a clause. A `.` inside the token is untouched, which is the
   // whole of what keeps `notes.md` from being trimmed down to `notes`. An `@`
-  // goes too, because while the menu is open the composer holds `@src/util.ts`
-  // and the reader is naming that file rather than a folder called `@src`.
+  // goes too, because it is the reader's own mark on a word rather than any part
+  // of the name: the composer holds `@src/util.ts` once they have picked it, and
+  // a word that looks like a folder called `@src` is not one.
   const trimmed = token
     .replace(/^["'`()[\]{}<>,;@]+/, "")
     .replace(/[.,;:!?)"'`\]}>]+$/, "");

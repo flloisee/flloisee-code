@@ -37,10 +37,12 @@ describe(NAMED, () => {
   });
 
   it("is found written the way the Root writes it, so a picked file and a typed one are one thing", () => {
-    // The `@` menu inserts a Root-relative path with no `@` left in it. If this
-    // did not recognise what the menu inserts, picking a file and typing it would
-    // be two different actions and the reader would have to learn which was which.
+    // The `@` menu inserts a Root-relative path with the reader's own `@` still on
+    // it. If this did not recognise what the menu inserts — mark and all — picking a
+    // file and typing it would be two different actions and the reader would have to
+    // learn which was which.
     expect(namedPaths("src/util.ts and notes.md")).toEqual(["src/util.ts", "notes.md"]);
+    expect(namedPaths("@src/util.ts and @notes.md")).toEqual(["src/util.ts", "notes.md"]);
   });
 
   it("is found written as a way out of the folder, because that is how a path gets copied", () => {

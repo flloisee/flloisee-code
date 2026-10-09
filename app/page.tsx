@@ -29,14 +29,31 @@ export default function Home() {
     <main className="mx-2 flex min-h-0 flex-1 flex-col border-x border-rule font-sans sm:mx-4">
       {/* The wordmark alone: the Theme is a preference rather than part of any
           Conversation, so it sits in the Settings at the foot of the list
-          instead of beside the title. */}
-      <header className="flex items-center gap-3 px-4 py-5 sm:px-6">
+          instead of beside the title.
+
+          The box below it carries the top of the rule that closes the sidebar,
+          so the line runs from the top of the frame rather than picking up under
+          the wordmark and leaving a gap where the header is. That is a second
+          segment of one line rather than a second answer to where the sidebar
+          ends: it is drawn here because the wordmark cannot move down inside the
+          sidebar column, being above the Suspense boundary the saved
+          Conversations load under, where it would vanish into the fallback with
+          them.
+
+          Both of the header's gutters sit inside the box — `py-5` on it, `px-*`
+          on the wordmark — for that box to be the whole of the column's width and
+          height rather than a strip inside it. Padding around the box would put
+          the rule's ends short of the frame's top edge and short of the nav
+          below, which is the same gap this is here to close. */}
+      <header className="flex">
         {/* The wordmark is the one place the display face appears in the running
             app. Small and grounded — this is a utility that opens on a Local
             Endpoint, not a product page that needs a hero. */}
-        <h1 className="min-w-0 font-display text-lg font-semibold tracking-tight text-ink">
-          flloisee code
-        </h1>
+        <div className="flex w-full shrink-0 items-center border-rule py-5 md:w-56 md:border-r">
+          <h1 className="min-w-0 px-4 font-display text-lg font-semibold tracking-tight text-ink sm:px-6">
+            flloisee code
+          </h1>
+        </div>
       </header>
 
       {/* useChat derives its id from Math.random(), which must not be evaluated

@@ -76,9 +76,23 @@ export type TabsProps = {
   labelledBy: string;
   /** Where the whole thing sits in the dialog. */
   className?: string;
+  /**
+   * Whether the panel takes the room a fixed-height dialog has left, and scrolls
+   * what does not fit in it.
+   *
+   * A dialog whose height is steady — so that moving between panels of different
+   * lengths does not move its top edge — is a flex column, and something inside
+   * it has to be the part that gives way. That part is the panel: the heading and
+   * the strip stay exactly where the reader last saw them, and a table of Models
+   * too long for the box scrolls under the strip rather than out of the dialog.
+   *
+   * Off by default, because a dialog that fits its content has nothing to give
+   * way and would only be made to scroll by this.
+   */
+  grows?: boolean;
 };
 
-export function Tabs({ tabs, selected, onSelect, labelledBy, className }: TabsProps) {
+export function Tabs({ tabs, selected, onSelect, labelledBy, className, grows }: TabsProps) {
   // Two things with similar names, and the difference is what each is for: `id`
   // is the prefix every element in here is named from, `strip` is the element
   // the focus lookup happens against.
@@ -86,7 +100,7 @@ export function Tabs({ tabs, selected, onSelect, labelledBy, className }: TabsPr
   const strip = useRef<HTMLDivElement>(null);
 
   return (
-    <div className={className}>
+    <div className={`${className ?? ""} ${grows ? "flex min-h-0 flex-1 flex-col" : ""}`}>
       <div
         ref={strip}
         role="tablist"
@@ -142,7 +156,12 @@ export function Tabs({ tabs, selected, onSelect, labelledBy, className }: TabsPr
         // nothing saved. A panel that can be empty of focusables is a panel
         // Escape-and-Tab walks straight out of.
         tabIndex={0}
-        className="mt-4"
+        // `min-h-0` alongside the flex grow, and it is the whole of it: a flex
+        // item defaults to `min-height: auto`, so the panel would refuse to shrink
+        // below its content and push the dialog's own box out through the bottom
+        // instead of scrolling inside it. `hm-scroll` reserves the gutter for the
+        // bar that appears only on the panels long enough to need one.
+        className={`mt-4 ${grows ? "hm-scroll min-h-0 flex-1 overflow-y-auto" : ""}`}
       >
         {tabs[selected].panel}
       </div>

@@ -100,6 +100,19 @@ describe("opening Settings", () => {
     // away from a dismissal the reader did not mean to make.
     await waitFor(() => expect(document.activeElement).toBe(dialog));
   });
+
+  it("carries a cog beside the word, and says Settings only once", () => {
+    const { trigger } = renderSettings();
+
+    // The glyph marks this as the app's own configuration rather than another
+    // navigation row, and it is drawn rather than spelled out — a reader with
+    // scripting off gets the word on its own, which is why the word stays.
+    expect(trigger.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(trigger.textContent).toBe("Settings");
+    // And it is named by the button, not by the drawing: the Theme toggle's sun
+    // is in the same box and the same weight, and the two must not read alike.
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+  });
 });
 
 describe("the Endpoint and Model in it", () => {
@@ -476,6 +489,32 @@ describe("the sections it is divided into", () => {
 
     expect(panel.getAttribute("aria-labelledby")).toBe(tab.getAttribute("id"));
     expect(tab.getAttribute("aria-controls")).toBe(panel.getAttribute("id"));
+  });
+
+  it("holds the heading and the strip still, whichever panel is behind them", () => {
+    const { dialog } = openSettings();
+
+    // A panel's height is its content's — Saved is two lines, Model Fit is a table
+    // of eight — and a dialog as tall as its content puts its top edge wherever
+    // the panel in front of it ends. The tab strip is the control the reader has
+    // just pressed, so it travelling up and down the screen with the content under
+    // it reads as the dialog losing its place.
+    //
+    // Read off the class rather than measured: jsdom has no layout, so there is no
+    // height to compare between two tabs, and what can be dropped is the box that
+    // makes the top edge the same on both.
+    expect(dialog.className).toContain("h-[min(38rem,100%)]");
+    // Centred, which only holds the top edge still because the box does.
+    expect(dialog.parentElement?.className).toContain("items-center");
+
+    // The panel behind the strip is what gives way when it is too tall, rather
+    // than the whole dialog growing around it — a scroll that took the heading
+    // with it would move the top edge and lose the thing this is for.
+    const body = within(dialog).getByRole("tabpanel");
+    expect(body.className).toContain("overflow-y-auto");
+    expect(within(dialog).getByRole("heading", { name: "Settings" }).className).toContain(
+      "shrink-0",
+    );
   });
 });
 

@@ -166,18 +166,32 @@ describe("the two fits, chosen by the reader", () => {
     expect(asked(spy)[1].minTokensPerSecond).toBe(50);
   });
 
-  it("leads each row with whatever the fit is ordered by", async () => {
-    // The left column is the figure that explains the row's position, so it is
-    // the one the ordering uses. On this tab that is the parameter count.
+  it("reads the same way on both tabs, so the two can be compared", async () => {
+    // The columns are the difference that is *not* the difference between the
+    // fits: both rows carry the weights and the pace, in the same places, and only
+    // the order of the rows changes. A reader who has read one list should not
+    // have to learn the table again on the other tab, and comparing the two fits
+    // should be comparing rows rather than two arrangements.
     stubRoutes({ recommendations: answered });
     render(<HardwareSection />);
 
-    await waitFor(() => expect(screen.getByText("160 tok/s")).toBeTruthy());
+    const row = () => screen.getByText("Qwen/Qwen3-8B-GGUF").closest("li")?.textContent ?? "";
+
+    await waitFor(() => expect(row()).toBeTruthy());
+
+    const bySpeed = row();
+
+    // Weights leading, pace at the far end, on the tab whose ordering is pace.
+    expect(bySpeed).toMatch(/^8\.3B/);
+    expect(bySpeed).toMatch(/160 tok\/s$/);
 
     fireEvent.click(tab("Intelligence fit"));
 
-    await waitFor(() => expect(screen.getByText("8.3B")).toBeTruthy());
-    expect(screen.queryByText("160 tok/s")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Qwen/Qwen3-8B-GGUF")).toBeTruthy());
+
+    // And the same row on the tab whose ordering is those same weights — a column
+    // that changed its mind here would make the two lists impossible to compare.
+    expect(row()).toBe(bySpeed);
   });
 
   it("keeps the pace beside a Model it recommends for being large", async () => {
@@ -192,6 +206,19 @@ describe("the two fits, chosen by the reader", () => {
 
     await waitFor(() => expect(screen.getByText("8.3B")).toBeTruthy());
     expect(screen.getByText(/160 tok\/s/)).toBeTruthy();
+  });
+
+  it("says how much Model is in the file, on the tab ranked by pace", async () => {
+    // The same argument as the test above, pointed the other way. The list the Hub
+    // ranks by downloads is mostly small Models, so a speed list that showed only
+    // the pace would be a list of megabyte-sized Models reading as a list of good
+    // ones — and this is the tab most likely to be read that way, because pace is
+    // the figure that looks like quality.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    await waitFor(() => expect(screen.getByText("Qwen/Qwen3-8B-GGUF")).toBeTruthy());
+    expect(screen.getByText(/8\.3B/)).toBeTruthy();
   });
 
   it("takes the other list away rather than showing it under this tab's name", async () => {

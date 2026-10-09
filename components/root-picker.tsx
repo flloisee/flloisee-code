@@ -578,8 +578,14 @@ function FolderChooser({
         Choose a folder
       </h2>
 
+      {/* The apostrophe in the first sentence is `’` and not `'`, which the
+          `no-unescaped-entities` rule forbids in JSX text because a raw one would
+          read as a closing tag. The typographic form is the one this app's copy
+          is already set in — the em dashes and the ellipsis beside it are the
+          same decision — so the escaped ASCII form would be the one sentence
+          here written in a shape nothing else on screen is written in. */}
       <p className="mt-2 text-sm text-ink-2">
-        Your computer's folder dialog picks the folder. It gives this app only the name, not the
+        Your computer’s folder dialog picks the folder. It gives this app only the name, not the
         path. So the app looks for folders with that name in your home folder and shows you the
         real path.
       </p>

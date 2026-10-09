@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { STROKE } from "@/components/glyph";
 import type { ConversationSummary } from "@/lib/conversations/store";
 import { UNTITLED } from "@/lib/conversations/title";
 
@@ -15,6 +16,12 @@ import { UNTITLED } from "@/lib/conversations/title";
  * one-line thing and a dialog for it would be more interface than the job
  * needs. Escape abandons it: a rename is only worth keeping if the reader meant
  * it, and the original name is always a better fallback than a blank row.
+ *
+ * The row actions are glyphs rather than words, and the words move to where a
+ * glyph cannot reach: the accessible name and the hover. At the width this
+ * column has, "Rename" and "Delete" spelled out are most of what a Name gets,
+ * and a Saved Conversation is identified by its Name — spending the space on two
+ * verbs that only apply to one row at a time is spending it in the wrong place.
  *
  * Settings live at the foot of this column rather than in the header above it,
  * because everything they change is app chrome rather than any part of a
@@ -48,6 +55,45 @@ export type ConversationListProps = {
 
 /** When the last row was renamed, the input holding it. Focus returns here on Escape. */
 type Editing = { id: string; title: string } | null;
+
+/**
+ * A pencil, tip to the lower left at (3.5, 12.5).
+ *
+ * Measured rather than sketched: the shaft runs on the diagonal at three units
+ * across and eleven long, which is the proportion that still reads as a pencil
+ * once the glyph is 14px on screen. A narrower shaft stops being two edges and
+ * becomes a slash, and a shorter one stops being a pencil and becomes a dart.
+ * The ferrule line sits seven units up from the tip — far enough to be a second
+ * edge, near enough that the blunt end reads as an end.
+ */
+function Pencil() {
+  return (
+    <svg {...STROKE}>
+      <path d="M2.44 11.44 10.22 3.66 12.34 5.78 4.56 13.56Z" />
+      <path d="M7.39 6.49 9.51 8.61" />
+    </svg>
+  );
+}
+
+/**
+ * A bin: lid, body, handle, and two ribs.
+ *
+ * The ribs are the part that matters. Without them the lid-and-taper outline is
+ * a box with a handle on it, which at 14px is a shape rather than a meaning, so
+ * the two short verticals are what turn it into a thing that empties. Their
+ * overhang — the lid is a unit and a quarter wider than the body on each side —
+ * is what stops the bin reading as a lid resting on a container.
+ */
+function Bin() {
+  return (
+    <svg {...STROKE}>
+      <path d="M2.25 4.25h11.5" />
+      <path d="M3.5 4.25v9.15A1.33 1.33 0 0 0 4.83 14.73h6.34A1.33 1.33 0 0 0 12.5 13.4V4.25" />
+      <path d="M5.1 4.25V2.9A1.33 1.33 0 0 1 6.43 1.57h3.14A1.33 1.33 0 0 1 10.9 2.9v1.35" />
+      <path d="M6.2 6.75v4.5M9.8 6.75v4.5" />
+    </svg>
+  );
+}
 
 export function ConversationList({
   conversations,
@@ -89,13 +135,28 @@ export function ConversationList({
       // The list scrolls, the footer does not — so it is `overflow-hidden` here
       // and the scrolling moves to the middle section below, which is the only
       // part that grows with the number of Conversations.
-      className="flex w-full shrink-0 flex-col border-rule md:w-56 md:border-r"
+      //
+      // `max-h-[45%]` below `md` is what keeps the stacking honest now that the
+      // document itself does not scroll. Narrow, this sits above the Conversation
+      // rather than beside it, and `shrink-0` says it keeps whatever height its
+      // list wants — which, for a reader with a few dozen Conversations, is more
+      // than the window has, and would push the composer and every Turn in it
+      // off the bottom of the screen entirely. Capped at a share of the window
+      // the section below scrolls inside instead, and the Conversation is never
+      // the half that loses. Above `md` the two are side by side and the column
+      // is the height of the shell, so the cap is lifted.
+      className="flex max-h-[45%] w-full shrink-0 flex-col border-rule md:max-h-none md:w-56 md:border-r"
     >
       <div className="flex items-center justify-between gap-2 px-3 py-3">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
           Conversations
         </h2>
         <button type="button" onClick={onNew} className="hm-btn hm-btn--quiet">
+          {/* The sign is the affordance; the word is the name. It leads, the way
+              the cog leads the Settings word below it, and it is hidden from a
+              screen reader so the button still announces as one word rather than
+              as "plus New". */}
+          <span aria-hidden="true">+</span>
           New
         </button>
       </div>
@@ -123,10 +184,16 @@ export function ConversationList({
                   // without reaching for the colour they are drawn in.
                   data-conversation={conversation.id}
                   data-open={open || undefined}
+                  // `py-0.5`, not `py-1.5`. The row was as tall as a line of type with a pair
+                  // of word-buttons inside it; the actions are control-height
+                  // squares now, so padding sized for a line would put the row
+                  // at 64px and cost the reader a third of the list. What is
+                  // left of the old breathing room is 4px a side, which is
+                  // enough for the row's own hover to read as a row.
                   className={
                     open
-                      ? "flex items-center gap-1 rounded-panel bg-paper-3 px-2 py-1.5"
-                      : "group flex items-center gap-1 rounded-panel px-2 py-1.5 hover:bg-paper-2"
+                      ? "flex items-center gap-1 rounded-panel bg-paper-3 px-2 py-0.5"
+                      : "group flex items-center gap-1 rounded-panel px-2 py-0.5 hover:bg-paper-2"
                   }
                 >
                   {editing?.id === conversation.id ? (
@@ -161,23 +228,30 @@ export function ConversationList({
 
                   {editing?.id !== conversation.id && (
                     <span className="flex shrink-0 items-center gap-0.5">
+                      {/* `title` carries the same words as `aria-label`, because a
+                          glyph cannot say what it is for and a screen reader is
+                          not the only reader. It is a supplement to the
+                          accessible name, not a replacement, so nothing is lost
+                          on a touch device. */}
                       <button
                         type="button"
                         onClick={() =>
                           setEditing({ id: conversation.id, title: conversation.title })
                         }
                         aria-label={`Rename ${conversation.title}`}
-                        className="rounded px-1 text-xs text-muted hover:text-ink"
+                        title={`Rename ${conversation.title}`}
+                        className="hm-btn hm-btn--quiet hm-btn--icon"
                       >
-                        Rename
+                        <Pencil />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDelete(conversation.id)}
                         aria-label={`Delete ${conversation.title}`}
-                        className="rounded px-1 text-xs text-muted hover:text-error"
+                        title={`Delete ${conversation.title}`}
+                        className="hm-btn hm-btn--quiet hm-btn--icon hm-btn--danger"
                       >
-                        Delete
+                        <Bin />
                       </button>
                     </span>
                   )}

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/files/route";
 import { Chat } from "@/components/chat";
 import { resolvePath } from "@/lib/roots/file-finder";
+import { namedPaths } from "@/lib/roots/named-path";
 import { ROOT_FILE } from "@/lib/roots/reading-root";
 import { temporaryProject, type TemporaryProject } from "@/lib/testing/temporary-project";
 
@@ -272,11 +273,12 @@ describe(CHOSEN, () => {
     press("Enter");
 
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    // The `@` goes with the words after it. It was how the name was chosen and
-    // it is not part of it, so what is left is a plain Root-relative path: what
-    // the reader can check, what the Model is asked for, and what the pasted-path
-    // check in ticket 09 recognises as a path rather than as punctuation.
-    expect(composer().value).toBe("src/util.ts ");
+    // The words typed after the `@` are replaced and the `@` stays. It is the
+    // reader's own mark on the name: it is what says which words in a long
+    // sentence are files, and it is drawn heavier than the words around them.
+    // `namedPaths` takes it off again on the way to the route, so what the Model
+    // is asked for is still a plain Root-relative path.
+    expect(composer().value).toBe("@src/util.ts ");
   });
 
   it("inserts the path of a folder, rather than what is in it", async () => {
@@ -287,7 +289,7 @@ describe(CHOSEN, () => {
     press("Enter");
 
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect(composer().value).toBe("src ");
+    expect(composer().value).toBe("@src ");
   });
 
   it("leaves the reader able to carry on typing after the path", async () => {
@@ -297,13 +299,13 @@ describe(CHOSEN, () => {
     press("Enter");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
 
-    type("src/util.ts and ");
+    type("@src/util.ts and ");
 
     // The insertion is an ordinary edit in an ordinary textarea, and the caret
     // lands after it: the reader takes it as a starting point rather than as a
     // finished thing.
-    expect(composer().value).toBe("src/util.ts and ");
-    expect(composer().selectionStart).toBe("src/util.ts and ".length);
+    expect(composer().value).toBe("@src/util.ts and ");
+    expect(composer().selectionStart).toBe("@src/util.ts and ".length);
   });
 
   it("closes on Escape and leaves what was typed where it was", async () => {
@@ -456,10 +458,12 @@ describe("a path the menu chose", () => {
 
     // What the menu inserted is not a label — it is a path the Tools will be asked
     // for and the pasted-path check will recognise, so the two are put to each
-    // other here rather than each being asserted separately.
-    const resolved = await resolvePath(composer().value.trim());
+    // other here rather than each being asserted separately. The recogniser is
+    // asked first because the reader's own `@` is still on the word, which is the
+    // whole of what `named-path`'s leading-punctuation trim is there for.
+    const [named] = namedPaths(composer().value);
 
-    expect(resolved).toMatchObject({
+    expect(await resolvePath(named)).toMatchObject({
       status: "resolved",
       path: "src/util.ts",
       under: "root",
@@ -474,11 +478,85 @@ describe("a path the menu chose", () => {
     press("Enter");
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
 
-    expect(await resolvePath(composer().value.trim())).toMatchObject({
+    // Asked of the route rather than of `namedPaths`, and the difference is worth
+    // stating: a bare folder name carries neither an extension nor a separator, so
+    // there is nothing in its shape to say it is a path and the recogniser declines
+    // it. Nothing is lost by that — the menu only ever offers what is inside the
+    // Root, so containment has already answered this one, and there is no question
+    // to put to the reader. The `@` is the mark rather than part of the name, so
+    // what the route is given is the folder.
+    const [, name] = composer().value.split("@");
+
+    expect(await resolvePath(name.trim())).toMatchObject({
       status: "resolved",
       path: "src",
       kind: "directory",
     });
+  });
+});
+
+/** Everything drawn over the composer, which is the message and nothing else. */
+function drawnText(): string {
+  return document.querySelector<HTMLElement>("[data-mirror]")?.textContent ?? "";
+}
+
+/** The names in the message, drawn heavier than the words around them. */
+function drawnNames(): string[] {
+  return [...document.querySelectorAll<HTMLElement>("[data-mention]")].map(
+    (run) => run.textContent ?? "",
+  );
+}
+
+const DRAWN = "the names in a message, drawn";
+
+describe(DRAWN, () => {
+  it("are the whole of what the field holds, because the copy is what is read", async () => {
+    await openComposer();
+
+    type("what does @src/util.ts do?");
+
+    // The field's own text is invisible, so this is the message — every character
+    // of it, in order, spaces included. A copy that dropped or added one would put
+    // every name after it out of place, and there would be nothing to notice.
+    expect(drawnText()).toBe(composer().value);
+    expect(drawnText()).toBe("what does @src/util.ts do?");
+  });
+
+  it("carry the `@` the reader picked them with", async () => {
+    await openComposer();
+    type("@ut");
+    await waitForMenu();
+
+    press("Enter");
+
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    // A name drawn without the character that named it would be a path that looks
+    // picked and is not, in the one place a reader is trying to see what they
+    // picked.
+    expect(drawnNames()).toEqual(["@src/util.ts"]);
+  });
+
+  it("are every name in the message, and nothing but the named ones", async () => {
+    await openComposer();
+
+    type("compare @src/util.ts with @src/index.ts and notes.md");
+
+    // The `@` is what makes a word a name, and that is the whole of the rule: it
+    // is the reader's own mark, drawn where they put it. `notes.md` is a file the
+    // app will ask about just the same, and is left as the ordinary word it was
+    // typed as — it was not named, it was written.
+    expect(drawnNames()).toEqual(["@src/util.ts", "@src/index.ts"]);
+  });
+
+  it("leave an address alone, because that is what an `@` in the middle of one is", async () => {
+    await openComposer();
+
+    type("write to me@example.com about it");
+
+    // The menu does not open over it, so a copy drawn as though it did would be a
+    // second answer to the same question, and the reader's own address would be
+    // named as a file.
+    expect(drawnNames()).toEqual([]);
   });
 });
 

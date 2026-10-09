@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import { Confirm } from "@/components/confirm";
 import { EndpointPicker } from "@/components/endpoint-picker";
+import { STROKE } from "@/components/glyph";
 import { HardwareSection } from "@/components/hardware-section";
 import { Modal } from "@/components/modal";
 import { ModelPicker } from "@/components/model-picker";
@@ -87,6 +88,27 @@ export type SettingsProps = {
   onDeleteAllChats: () => void;
 };
 
+/**
+ * A cog, for the button below.
+ *
+ * Six teeth at 60° pitch, each tip 13° half-angle against a 19° root, which
+ * leaves a 3.13-unit tip and a 3.56-unit gap at the root — near enough even that
+ * neither closes up when the glyph is 14px on screen. That is the whole
+ * constraint: eight teeth is the usual count and is unreadable at this size, the
+ * gaps fill in and the drawing comes out a blob; six is the count at which the
+ * teeth are still separate marks. The hole is small — 2.2 units — deliberately,
+ * because a large one would make this the same picture as the Theme toggle's sun,
+ * which is a circle and rays in the same 16-unit box.
+ */
+function Gear() {
+  return (
+    <svg {...STROKE}>
+      <path d="M6.45 1.28H9.55L9.6 3.37L11.21 4.3L13.05 3.29L14.6 5.98L12.81 7.07V8.93L14.6 10.02L13.05 12.71L11.21 11.7L9.6 12.63L9.55 14.72H6.45L6.4 12.63L4.79 11.7L2.95 12.71L1.4 10.02L3.19 8.93V7.07L1.4 5.98L2.95 3.29L4.79 4.3L6.4 3.37Z" />
+      <circle cx="8" cy="8" r="2.2" />
+    </svg>
+  );
+}
+
 /** The button, and the dialog it opens. */
 export function Settings({
   endpointId,
@@ -109,6 +131,14 @@ export function Settings({
         // the column's title rather than as one control in it.
         className="hm-btn hm-btn--quiet"
       >
+        {/* The glyph earns its place beside a word rather than replacing one.
+            Everything above this button in the column is navigation — a
+            Conversation, or a way to make one — and this is the one control that
+            configures the app rather than moving through it. A cog says that
+            before the sentence does, and it is the same drawing at the same
+            weight as the ones two rows up, so the column reads as one interface
+            rather than as two that happen to touch. */}
+        <Gear />
         Settings
       </button>
 
@@ -198,13 +228,31 @@ function SettingsDialog({
     // one column a reader cannot do without. The narrower panels here look roomy
     // at this width, which is the cost of one ceiling for five panels and a far
     // smaller one than four separate dialogs.
-    <Modal labelledBy="settings-heading" onClose={onClose} width="wide">
-      <h2 id="settings-heading" className="font-display text-md font-semibold text-ink">
+    //
+    // Steady in height, and centred like any other dialog because of it. The five
+    // panels are not the same length — Saved is two lines, Model Fit is a table of
+    // eight — and a dialog as tall as its content puts its top edge wherever the
+    // panel in front of it happens to end, so every tab change slides the heading
+    // and the tab strip up or down the screen. The strip is the control the reader
+    // has just pressed; watching it jump reads as the dialog losing its place. A
+    // fixed box has one top edge whichever tab is behind it, and the panel too
+    // tall for that box scrolls under the strip rather than taking the top edge
+    // out of place with it.
+    <Modal labelledBy="settings-heading" onClose={onClose} width="wide" height="steady">
+      <h2
+        id="settings-heading"
+        // `shrink-0` so the heading holds its place against the top of a box of
+        // fixed height, which is the one thing in here that must not move.
+        className="shrink-0 font-display text-md font-semibold text-ink"
+      >
         Settings
       </h2>
 
       <Tabs
         className="mt-4"
+        // The one part of the box that gives way, and so the one part allowed to
+        // be a different length from one tab to the next.
+        grows
         tabs={sections()}
         selected={showing}
         onSelect={setShowing}
@@ -216,8 +264,9 @@ function SettingsDialog({
       {/* Below the strip and behind a rule, on every tab. Closing is not a
           section — there is nothing behind it — so it stays put whatever is
           showing, rather than becoming a sixth tab a reader could move to and
-          find empty. */}
-      <div className="mt-5 flex justify-end border-t border-rule pt-4">
+          find empty. It also holds still against the foot of the box, which is
+          what a button that is always in the same place should do. */}
+      <div className="mt-5 flex shrink-0 justify-end border-t border-rule pt-4">
         <button type="button" onClick={onClose} className="hm-btn">
           Close
         </button>

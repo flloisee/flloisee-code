@@ -27,12 +27,14 @@ import {
  * on it.
  *
  * The same budget answers **two fits**, and the tabs are what put them side by
- * side. Speed fit leads with pace; Intelligence fit leads with how much Model is
- * on the disk. They are not two feature switches over one list — they ask for
- * different candidates to be measured, because the twenty most-downloaded Models
- * on the Hub are small ones, and reordering those by size would be a list of
- * small Models in a different order. The slider serves both: dragged to its floor
- * the speed stops being the binding constraint, memory takes over, and
+ * side. The Speed fit orders by pace; the Intelligence fit orders by how much
+ * Model is on the disk. They are not two feature switches over one list — they ask
+ * for different candidates to be measured, because the twenty most-downloaded
+ * Models on the Hub are small ones, and reordering those by size would be a list
+ * of small Models in a different order. The order of the rows is the whole
+ * difference between them: the columns are the same either way, so a reader
+ * comparing the two lists is comparing rows. The slider serves both: dragged to
+ * its floor the speed stops being the binding constraint, memory takes over, and
  * "intelligence over speed" becomes simply the largest Model this machine holds.
  *
  * The one request here that leaves the machine — the Hub — is made only when the
@@ -130,7 +132,14 @@ export function HardwareSection() {
         aria-label="What to put first"
         // Structural hook rather than a styling one, for the reason recorded on
         // `file-menu.tsx`: a test that reads a class is pinned to the styling.
-        className="ml-16 flex gap-4"
+        //
+        // Centred rather than indented under the label column, and that is what the
+        // list below decided. These two tabs choose which table is drawn, so they
+        // read as belonging to it; a strip hanging at the left of a table that runs
+        // the width of the dialog reads as two unrelated things, and a reader has
+        // to work out that the first one is a control for the second. Centred, the
+        // strip sits over the table it switches and the pair reads as one block.
+        className="flex justify-center gap-4"
       >
         {FITS.map((fit) => {
           const chosen = fit.rank === rank;
@@ -182,7 +191,7 @@ export function HardwareSection() {
         {sliderMeaning(wanted)}
       </p>
 
-      {answer !== null && <AnswerList answer={answer} asking={asking} rank={rank} />}
+      {answer !== null && <AnswerList answer={answer} asking={asking} />}
 
       <p className="hm-status">{FIT_NOTES[rank]}</p>
 
@@ -260,19 +269,23 @@ function describeMachineOrReason(answer: HardwareAnswer): string {
   return "No chip details found on this machine";
 }
 
-/** The answer, in whichever of its shapes arrived. */
-function AnswerList({
-  answer,
-  asking,
-  rank,
-}: {
-  answer: RecommendationAnswer;
-  asking: boolean;
-  rank: Rank;
-}) {
+/**
+ * The answer, in whichever of its shapes arrived.
+ *
+ * Flush with the dialog's own left edge, where the notes above and below it
+ * already sit. It was indented by the width of the label column so that the list
+ * would line up under the slider — but a table is not a label-and-field row, and
+ * indenting one only bought an alignment no other part of this section makes. The
+ * cost was real: the whole block sat a fixed four rem to the right of centre,
+ * which read as a list that had been shoved aside rather than as a table laid out
+ * in the box it was given. The messages below take the same margin as the rows
+ * they stand in for, so an empty answer reads as this table's shape rather than as
+ * a note that happens to be under one.
+ */
+function AnswerList({ answer, asking }: { answer: RecommendationAnswer; asking: boolean }) {
   if ("status" in answer) {
     return (
-      <p className="ml-16 text-xs text-muted" role="status">
+      <p className="text-xs text-muted" role="status">
         {answer.message}
       </p>
     );
@@ -283,7 +296,7 @@ function AnswerList({
     // list here would read as "nothing suits this machine" — the opposite of
     // the truth, which is that the machine was never the right one to ask about.
     return (
-      <p className="ml-16 text-xs text-muted" role="status">
+      <p className="text-xs text-muted" role="status">
         {answer.reason} These specs describe the machine this app runs on, so no fits are shown.
       </p>
     );
@@ -291,7 +304,7 @@ function AnswerList({
 
   if (answer.reason !== null) {
     return (
-      <p className="ml-16 text-xs text-muted" role="status">
+      <p className="text-xs text-muted" role="status">
         {answer.reason}
       </p>
     );
@@ -308,7 +321,7 @@ function AnswerList({
         : ` At that speed a Model has to be under ${gib(answer.largestModelBytes)}.`;
 
     return (
-      <p className="ml-16 text-xs text-muted" role="status">
+      <p className="text-xs text-muted" role="status">
         {asking
           ? "Looking..."
           : `Nothing on Hugging Face clears ${answer.minTokensPerSecond} tokens a second on this machine.${ceiling ?? ""} Lower the slider to see more.`}
@@ -317,9 +330,9 @@ function AnswerList({
   }
 
   return (
-    <ul className="ml-16 flex flex-col gap-1.5" role="list">
+    <ul className="flex flex-col gap-1.5" role="list">
       {answer.recommendations.map((item) => (
-        <RecommendationRow key={item.repo} item={item} rank={rank} />
+        <RecommendationRow key={item.repo} item={item} />
       ))}
     </ul>
   );
@@ -328,13 +341,20 @@ function AnswerList({
 /**
  * One Model, and where to get it.
  *
- * The left column carries **whatever this fit is ordered by** — pace on one tab,
- * how much Model on the other — because that is where the reader's eye starts and
- * it is the figure that explains the position of the row. The other one is kept,
- * beside the size: a Model that is the most capable thing this machine can hold
- * is not a recommendation if it takes a minute to answer, and hiding the pace to
- * make the other tab look better would be the whole lie the note beneath is there
- * to prevent.
+ * **The columns are the same on both fits**, which is the decision worth writing
+ * down here: how much Model is in the file leads, and the pace rides beside the
+ * size. The two fits differ in the order of the rows and nothing else, so a reader
+ * who has read one list already knows where to look in the other, and comparing
+ * the two is comparing rows rather than two arrangements. A left column that
+ * changed its meaning when the tab changed would ask for that reading again on
+ * every press.
+ *
+ * Both figures are on every row for the same reason. A Model that is the most
+ * capable thing this machine can hold is not a recommendation if it takes a
+ * minute to answer, and the twenty most-downloaded Models on the Hub are small
+ * ones, so a speed list that dropped their size would be a list of tiny Models
+ * reading as a list of good ones. Dropping either figure to make a list look
+ * better is the whole lie the note beneath is there to prevent.
  *
  * The quantisation and its size come next because those are what the reader
  * actually downloads, and the two are not the same thing — the same Model has
@@ -345,16 +365,17 @@ function AnswerList({
  * a reader who wants a smaller or larger one can find it without coming back
  * here. Nothing is downloaded by the app: this is advice, not an installer.
  */
-function RecommendationRow({ item, rank }: { item: Recommendation; rank: Rank }) {
-  const leading = rank === "intelligence" ? billion(item.parameters) : `${Math.round(item.tokensPerSecond)} tok/s`;
-  const trailing = rank === "intelligence" ? ` · ${Math.round(item.tokensPerSecond)} tok/s` : "";
-
+function RecommendationRow({ item }: { item: Recommendation }) {
   return (
     <li className="flex items-baseline gap-3 border-l-2 border-rule pl-3">
-      {/* Wide enough for the largest figure this can draw. `672 tok/s` wrapped onto
-          two lines at the narrower width the label column sets, which made a
-          three-digit speed look like two separate readings. */}
-      <span className="w-20 shrink-0 font-mono text-xs text-accent">{leading}</span>
+      {/* Only wide enough for what this can draw: four characters at the size the
+          row is set, being `145B`, `1.8B`, `253M` or `602M`. It was `w-20` while
+          the pace led, which had to hold `672 tok/s` — a column twice this width
+          for a number this short is four characters of empty before every
+          repository name. */}
+      <span className="w-12 shrink-0 font-mono text-xs text-accent">
+        {billion(item.parameters)}
+      </span>
 
       <a
         href={item.url}
@@ -366,8 +387,7 @@ function RecommendationRow({ item, rank }: { item: Recommendation; rank: Rank })
       </a>
 
       <span className="shrink-0 font-mono text-xs text-muted">
-        {gib(item.bytes)} {item.quant}
-        {trailing}
+        {gib(item.bytes)} {item.quant} · {Math.round(item.tokensPerSecond)} tok/s
       </span>
     </li>
   );
