@@ -845,4 +845,42 @@ describe("renaming and deleting", () => {
 
     await waitFor(() => expect(names()).toEqual(["First question"]));
   });
+
+  it("forgets every Conversation, and only once the reader confirms", async () => {
+    plans = [["One."], ["Two."]];
+    renderApp();
+
+    send("First question");
+    await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
+    await savedCount(1);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "New" })[0]);
+    send("Second question");
+    await waitFor(() => expect(screen.getByText(/Two\./)).toBeTruthy(), { timeout: 5000 });
+    await savedCount(2);
+
+    openSettings();
+
+    // The count is the app's own, not a number handed to the dialog: it has to be
+    // the same one the list beside it is showing, or the reader is asked to agree
+    // to something different from what they can see.
+    expect(screen.getByText("2 saved.")).toBeTruthy();
+
+    // Cancelling first, because the whole point is that nothing has happened yet
+    // and a test that only ever confirms would not notice if it had.
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Newest first, as the list always is.
+    expect(names()).toEqual(["Second question", "First question"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+
+    // The list behind the dialog empties, and the Conversation being read is
+    // closed to an empty one rather than left showing Turns stored nowhere.
+    await waitFor(() => expect(screen.getByText("None saved.")).toBeTruthy());
+    expect(names()).toEqual([]);
+    expect(turnsOnScreen()).toEqual([]);
+  });
 });

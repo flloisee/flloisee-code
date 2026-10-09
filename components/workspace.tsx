@@ -53,8 +53,18 @@ export function Workspace({
    */
   backend?: ConversationBackend | null;
 }) {
-  const { conversations, current, ready, available, startNew, open, save, rename, remove } =
-    useConversations(backend);
+  const {
+    conversations,
+    current,
+    ready,
+    available,
+    startNew,
+    open,
+    save,
+    rename,
+    remove,
+    removeAll,
+  } = useConversations(backend);
 
   const {
     endpointId: chosenEndpoint,
@@ -92,6 +102,12 @@ export function Workspace({
             modelId={modelId}
             onSelectEndpoint={chooseEndpoint}
             onSelectModel={chooseModel}
+            // The count rather than the list itself: the dialog needs to say what
+            // would be lost and whether there is anything to lose, and handing it
+            // the Summaries would mean it could render the whole list behind a
+            // confirmation to answer a question a sentence answers.
+            savedCount={conversations.length}
+            onDeleteAllChats={() => void removeAll()}
           />
         }
       />

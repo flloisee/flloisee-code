@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   browserFactory,
   deleteConversation as deleteFromStore,
+  deleteEveryConversation as deleteAllFromStore,
   listConversations,
   readConversation,
   writeConversation,
@@ -65,6 +66,7 @@ export type ConversationBackend = {
   read: (id: string) => Promise<SavedConversation | null>;
   write: (conversation: SavedConversation) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  removeAll: () => Promise<void>;
 };
 
 /** Binds the store to a database, giving the hook a backend with no factory in it. */
@@ -74,6 +76,7 @@ export function backendFor(factory: IDBFactory): ConversationBackend {
     read: (id) => readConversation(factory, id),
     write: (conversation) => writeConversation(factory, conversation),
     remove: (id) => deleteFromStore(factory, id),
+    removeAll: () => deleteAllFromStore(factory),
   };
 }
 
@@ -115,6 +118,16 @@ export type UseConversations = {
   rename: (id: string, title: string) => Promise<void>;
   /** Forgets one Conversation. */
   remove: (id: string) => Promise<void>;
+  /**
+   * Forgets every Conversation, and closes whichever one was open.
+   *
+   * Offered as one call rather than as a loop over `remove` because that is what
+   * the reader asked for when they used it: not a filter that happens to match
+   * everything, but the whole Store, cleared in the single transaction the store
+   * provides for it. A loop would leave the list half-cleared if it failed on
+   * the way through, with nothing to tell the reader which half survived.
+   */
+  removeAll: () => Promise<void>;
 };
 
 /**
@@ -320,7 +333,39 @@ export function useConversations(backend?: ConversationBackend | null): UseConve
     [store, refresh],
   );
 
-  return { conversations, current, ready, available, startNew, open, save, rename, remove };
+  const removeAll = useCallback(
+    async () => {
+      if (!store) return;
+      try {
+        await store.removeAll();
+        // Unconditionally, not only where the open Conversation was one of the
+        // stored ones: the reader asked for their Saved Conversations to be gone,
+        // and leaving the Turns of a never-saved Conversation on screen would
+        // show them something they have just been told is stored nowhere. A
+        // fresh shell for the same reason `remove` uses one — the chat is keyed
+        // on this id, and a new id is what remounts it off the forgotten Turns.
+        currentRef.current = freshShell();
+        setCurrent(currentRef.current);
+        await refresh();
+      } catch {
+        setAvailable(false);
+      }
+    },
+    [store, refresh],
+  );
+
+  return {
+    conversations,
+    current,
+    ready,
+    available,
+    startNew,
+    open,
+    save,
+    rename,
+    remove,
+    removeAll,
+  };
 }
 
 /**

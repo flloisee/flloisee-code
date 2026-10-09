@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Settings } from "@/components/settings";
+import { Settings, type SettingsProps } from "@/components/settings";
 
 /**
  * Settings, observed as a reader meets it.
@@ -31,21 +31,24 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-function renderSettings() {
-  render(
-    <Settings
-      endpointId="ollama"
-      endpointName="Ollama"
-      modelId="llama3.2"
-      onSelectEndpoint={vi.fn()}
-      onSelectModel={vi.fn()}
-    />,
-  );
-  return screen.getByRole("button", { name: "Settings" });
+function renderSettings(overrides: Partial<SettingsProps> = {}) {
+  const props: SettingsProps = {
+    endpointId: "ollama",
+    endpointName: "Ollama",
+    modelId: "llama3.2",
+    onSelectEndpoint: vi.fn(),
+    onSelectModel: vi.fn(),
+    savedCount: 0,
+    onDeleteAllChats: vi.fn(),
+    ...overrides,
+  };
+
+  render(<Settings {...props} />);
+  return { trigger: screen.getByRole("button", { name: "Settings" }), props };
 }
 
-function openSettings() {
-  const trigger = renderSettings();
+function openSettings(overrides: Partial<SettingsProps> = {}) {
+  const { trigger, props } = renderSettings(overrides);
 
   // Focused before the click, because a browser focuses a button on mousedown
   // and `fireEvent.click` dispatches only the click. Without this the reader's
@@ -54,7 +57,7 @@ function openSettings() {
   trigger.focus();
   fireEvent.click(trigger);
 
-  return { trigger, dialog: screen.getByRole("dialog") };
+  return { trigger, dialog: screen.getByRole("dialog"), props };
 }
 
 describe("opening Settings", () => {
@@ -93,7 +96,7 @@ describe("the Endpoint and Model in it", () => {
     // Nothing of either exists until the reader opens Settings, which is the
     // point of the move: the reading pane is the Conversation, and what the app
     // is pointed at is a thing to be configured rather than read.
-    const trigger = renderSettings();
+    const { trigger } = renderSettings();
 
     expect(screen.queryByLabelText("Endpoint")).toBeNull();
     expect(screen.queryByLabelText("Model")).toBeNull();
@@ -106,7 +109,7 @@ describe("the Endpoint and Model in it", () => {
   });
 
   it("edits the Endpoint and Model the Conversation is held with", () => {
-    const trigger = renderSettings();
+    const { trigger } = renderSettings();
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole("dialog");
@@ -130,7 +133,7 @@ describe("the Reading Root in it", () => {
     // control renders nothing rather than a picker that could only fail.
     vi.stubEnv("NODE_ENV", "development");
 
-    const trigger = renderSettings();
+    const { trigger } = renderSettings();
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole("dialog");
@@ -163,6 +166,123 @@ describe("the preferences in it", () => {
     // what the stylesheet reads, so it is the only thing that being "in dark
     // theme" actually means here.
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("deleting every Conversation from it", () => {
+  /** Opens Settings with Conversations saved and presses Delete all. */
+  function askToDeleteAll(savedCount: number) {
+    const { dialog, props } = openSettings({ savedCount });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete all" }));
+
+    return { dialog: screen.getByRole("dialog"), props };
+  }
+
+  it("offers it once there is something to lose, and says how much", () => {
+    const { dialog } = openSettings({ savedCount: 12 });
+
+    // The count is where the decision gets made, not only behind the
+    // confirmation: a reader who can see there are twelve of them may decide
+    // this is not what they wanted at all, and should not have to open a
+    // question to find out what it would cost.
+    expect(within(dialog).getByText("12 saved.")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Delete all" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it("does not offer it when there is nothing to delete", () => {
+    const { dialog } = openSettings({ savedCount: 0 });
+
+    // Disabled rather than absent: a control that appeared and vanished with the
+    // list would shift the dialog under the reader, and its absence would leave
+    // them wondering whether saving works at all.
+    expect(within(dialog).getByText("None saved.")).toBeTruthy();
+    expect(
+      (within(dialog).getByRole("button", { name: "Delete all" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("asks before deleting anything, and says what is lost", () => {
+    const { dialog, props } = askToDeleteAll(12);
+
+    // The heading is a question and the body answers it in the reader's terms:
+    // how many, that the Turns go too, and that there is no way back. "Are you
+    // sure?" would be a formality over a decision they cannot make without these
+    // three facts.
+    expect(within(dialog).getByRole("heading", { name: /delete every conversation\?/i })).toBeTruthy();
+    expect(within(dialog).getByText(/all 12 saved Conversations/i)).toBeTruthy();
+    expect(within(dialog).getByText(/no way to get them back/i)).toBeTruthy();
+
+    // And nothing has happened yet. Asking is not agreeing.
+    expect(props.onDeleteAllChats).not.toHaveBeenCalled();
+  });
+
+  it("replaces the settings rather than stacking a dialog on them", () => {
+    const { dialog } = askToDeleteAll(12);
+
+    // One dialog on screen, not two. A question on top of a settings dialog
+    // would be a question about a page the reader can no longer see, and two
+    // scrims would mean one Escape dismissed both.
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(within(dialog).queryByLabelText("Endpoint")).toBeNull();
+  });
+
+  it("deletes nothing when the reader cancels", () => {
+    const { dialog, props } = askToDeleteAll(12);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    expect(props.onDeleteAllChats).not.toHaveBeenCalled();
+
+    // Back where they were, still in Settings, rather than in a dialog about
+    // deleting something that was not deleted.
+    expect(within(screen.getByRole("dialog")).getByLabelText("Endpoint")).toBeTruthy();
+  });
+
+  it("deletes nothing when the reader presses Escape", () => {
+    const { props } = askToDeleteAll(12);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(props.onDeleteAllChats).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: /delete every conversation\?/i })).toBeNull();
+  });
+
+  it("does not put the button that goes ahead first", () => {
+    const { dialog } = askToDeleteAll(12);
+
+    // Read as order rather than as class, because this is what a reader who
+    // tabs into the dialog meets before they have read the heading.
+    const buttons = within(dialog).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual(["Cancel", "Delete all"]);
+  });
+
+  it("takes focus on the panel, so nothing is a keystroke from being deleted", async () => {
+    const { dialog } = askToDeleteAll(12);
+
+    // The same reason Settings itself does: focus on a control when a dialog
+    // opens is one Enter away from a decision the reader has not read yet, and
+    // this is the last decision in the app that should be that easy to make.
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
+  });
+
+  it("deletes when the reader confirms, and only once", () => {
+    const { dialog, props } = askToDeleteAll(12);
+
+    const confirm = within(dialog).getByRole("button", { name: "Delete all" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+
+    // Once, not twice: the button is live until the state settles, and a
+    // double-fire is the shape of accident this whole dialog exists to prevent.
+    expect(props.onDeleteAllChats).toHaveBeenCalledTimes(1);
+
+    // Back in Settings, which is where the count now reads none — the feedback
+    // is the dialog the reader is already in, not a second one announcing it.
+    expect(screen.queryByRole("heading", { name: /delete every conversation\?/i })).toBeNull();
+    expect(within(screen.getByRole("dialog")).getByLabelText("Endpoint")).toBeTruthy();
   });
 });
 

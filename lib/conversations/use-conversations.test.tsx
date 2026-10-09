@@ -598,12 +598,83 @@ describe("deleting", () => {
   });
 });
 
+describe("deleting everything", () => {
+  /** Two saved Conversations, so "all of them" is a claim worth making. */
+  async function twoSaved() {
+    const hook = renderHook(() => useConversations(backendOf()));
+    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+
+    act(() => {
+      hook.result.current.startNew();
+      hook.result.current.save([turn("user", "Why is the build red?")]);
+    });
+    await waitFor(() => expect(hook.result.current.conversations).toHaveLength(1));
+
+    act(() => {
+      hook.result.current.startNew();
+      hook.result.current.save([turn("user", "What does the reader do?")]);
+    });
+    await waitFor(() => expect(hook.result.current.conversations).toHaveLength(2));
+
+    return hook;
+  }
+
+  it("forgets every Conversation at once", async () => {
+    const { result } = await twoSaved();
+
+    await act(async () => {
+      await result.current.removeAll();
+    });
+
+    // Read back through the store rather than off the hook's own state, because
+    // the list being empty is only half the claim — the other half is that
+    // nothing is left behind to come back on the next read.
+    expect(await listConversations(factory)).toEqual([]);
+    expect(result.current.conversations).toEqual([]);
+  });
+
+  it("closes the open Conversation, which was one of them", async () => {
+    const { result } = await twoSaved();
+    const open = result.current.current.id;
+
+    await act(async () => {
+      await result.current.removeAll();
+    });
+
+    // Same reason deleting one does this: the chat is keyed on this id, so a
+    // fresh one is what remounts the transcript off Turns that no longer exist
+    // anywhere.
+    expect(result.current.current.messages).toEqual([]);
+    expect(result.current.current.id).not.toBe(open);
+  });
+
+  it("does nothing at all where there is no store", async () => {
+    const { result } = renderHook(() => useConversations(null));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    act(() => {
+      result.current.startNew();
+      result.current.save(OPENING);
+    });
+
+    // Nothing to throw over and nothing to change: the Turns in front of the
+    // reader are the only copy there has ever been, and the bargain in this
+    // module is that losing persistence never costs them.
+    await act(async () => {
+      await result.current.removeAll();
+    });
+
+    expect(result.current.conversations).toEqual([]);
+  });
+});
+
 describe("where storage is unavailable", () => {
   const failing = {
     list: () => Promise.reject(new Error("denied")),
     read: () => Promise.reject(new Error("denied")),
     write: () => Promise.reject(new Error("denied")),
     remove: () => Promise.reject(new Error("denied")),
+    removeAll: () => Promise.reject(new Error("denied")),
   };
 
   it("still reads as ready, so the app is usable", async () => {
@@ -625,6 +696,20 @@ describe("where storage is unavailable", () => {
         result.current.save(OPENING);
       });
     }).not.toThrow();
+  });
+
+  it("does not throw into a render when clearing fails", async () => {
+    const { result } = renderHook(() => useConversations(failing));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    // The same bargain as every other write here. A store that refuses to be
+    // emptied leaves the list as it was and says it is unavailable; it must not
+    // take the Conversation in front of the reader down with it.
+    await act(async () => {
+      await result.current.removeAll();
+    });
+
+    expect(result.current.available).toBe(false);
   });
 
   it("carries on when there is no store at all", async () => {

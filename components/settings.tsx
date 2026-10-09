@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
+import { Confirm } from "@/components/confirm";
 import { EndpointPicker } from "@/components/endpoint-picker";
 import { Modal } from "@/components/modal";
 import { ModelPicker } from "@/components/model-picker";
@@ -34,6 +35,14 @@ import { ThemeToggle } from "@/components/theme-toggle";
  * developer's disk — so it does not belong beside the Conversation, and putting
  * it above the reader's messages would make a capability that reads their files
  * look like part of the chat.
+ *
+ * Deleting every Conversation is here for the same reason the list's per-row
+ * Delete is not enough: the rows carry their own control, but there is no
+ * "forget the lot" among them, and a reader clearing out work they have finished
+ * with should not have to press Delete once per row to say so. It is at the foot
+ * rather than beside the New, because a control that destroys everything is not
+ * a navigation, and one keystroke from the control that creates things it is
+ * exactly the wrong place for it.
  */
 
 /** What the dialog edits, passed in from the one place that holds it. */
@@ -48,6 +57,10 @@ export type SettingsProps = {
   onSelectEndpoint: (endpointId: string) => void;
   /** Called with the Model chosen in the current Endpoint. */
   onSelectModel: (modelId: string) => void;
+  /** How many Conversations are saved, so the row below can say what it would cost. */
+  savedCount: number;
+  /** Called once the reader has confirmed, and not before. */
+  onDeleteAllChats: () => void;
 };
 
 /** The button, and the dialog it opens. */
@@ -57,6 +70,8 @@ export function Settings({
   modelId,
   onSelectEndpoint,
   onSelectModel,
+  savedCount,
+  onDeleteAllChats,
 }: SettingsProps) {
   const [open, setOpen] = useState(false);
 
@@ -80,6 +95,8 @@ export function Settings({
           modelId={modelId}
           onSelectEndpoint={onSelectEndpoint}
           onSelectModel={onSelectModel}
+          savedCount={savedCount}
+          onDeleteAllChats={onDeleteAllChats}
           onClose={() => setOpen(false)}
         />
       )}
@@ -105,8 +122,42 @@ function SettingsDialog({
   modelId,
   onSelectEndpoint,
   onSelectModel,
+  savedCount,
+  onDeleteAllChats,
   onClose,
 }: SettingsProps & { onClose: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // The confirmation *replaces* this dialog rather than opening on top of it.
+  // Two `Modal`s at once would stack two scrims and bind Escape twice — so one
+  // Escape would dismiss both, taking the confirmation away at the moment it was
+  // the only thing standing between the reader and the delete. Swapping keeps
+  // exactly one dialog on screen at a time, which is also what a reader expects:
+  // a question on top of the settings would be a question about a page that is
+  // no longer there.
+  if (confirming) {
+    return (
+      <Confirm
+        title="Delete every Conversation?"
+        body={whatDeletingCosts(savedCount)}
+        confirmLabel="Delete all"
+        busy={deleting}
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          if (deleting) return;
+          setDeleting(true);
+          // Not awaited into an error the reader would have to read: `removeAll`
+          // already swallows a failure and says so through the list, and a throw
+          // here would leave the button stuck on "Deleting..." forever.
+          onDeleteAllChats();
+          setDeleting(false);
+          setConfirming(false);
+        }}
+      />
+    );
+  }
+
   return (
     <Modal labelledBy="settings-heading" onClose={onClose}>
       <h2 id="settings-heading" className="font-display text-md font-semibold text-ink">
@@ -142,11 +193,77 @@ function SettingsDialog({
         <ThemeToggle />
       </div>
 
+      {/* Below the Theme and last in the dialog, behind a rule of its own. Every
+          control above it changes what the app does next; this one throws away
+          what has already been done, and the reader should have to scroll past
+          four things that are not that to reach it. */}
+      <div className="mt-5 flex items-start justify-between gap-3 border-t border-rule pt-4">
+        <div className="min-w-0">
+          <span className="text-sm text-ink-2">Saved Conversations</span>
+          {/* What is at stake, said where the decision is made rather than only in
+              the confirmation: a reader who can see there are forty of them may
+              not want this at all, and a reader who can see there are none
+              should not be offered the button at all. */}
+          <p className="mt-0.5 text-xs text-muted">{whatIsSaved(savedCount)}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          // Disabled rather than hidden when there is nothing stored. A control
+          // that appeared and vanished with the list would move the dialog's
+          // layout around underneath the reader; a button that is simply not
+          // available says there is nothing here to delete, which is the fact.
+          disabled={savedCount === 0}
+          className="hm-btn shrink-0 text-error"
+        >
+          Delete all
+        </button>
+      </div>
+
       <div className="mt-5 flex justify-end">
         <button type="button" onClick={onClose} className="hm-btn">
           Close
         </button>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * How many Conversations are saved, said the way a reader counts them.
+ *
+ * "None saved" rather than "0 Conversations": a row in the interface that reads
+ * as a number where a number is not what the reader is thinking about is a row
+ * they have to translate before they can decide anything.
+ */
+function whatIsSaved(count: number): string {
+  if (count === 0) return "None saved.";
+  return count === 1 ? "1 saved." : `${count} saved.`;
+}
+
+/**
+ * What confirming actually costs, in the order a reader needs to hear it.
+ *
+ * The count is repeated from the row behind rather than dropped, because the
+ * reader has been looking at a question, not at the settings, and the number
+ * they are agreeing to lose is the thing that decides it. Then the two facts
+ * that make it a decision rather than a formality: the Turns go too, and there
+ * is no way back.
+ */
+function whatDeletingCosts(count: number): ReactNode {
+  return (
+    <>
+      <p>
+        {count === 1
+          ? "This deletes the one saved Conversation"
+          : `This deletes all ${count} saved Conversations`}{" "}
+        and every Turn in them. Nothing is kept anywhere else, and there is no way
+        to get them back.
+      </p>
+      <p className="mt-2">
+        The Conversation you are reading now will be closed to an empty one. Your
+        Endpoint, Model, and Reading Root are not touched.
+      </p>
+    </>
   );
 }
