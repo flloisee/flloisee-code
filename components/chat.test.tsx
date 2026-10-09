@@ -5,10 +5,11 @@ import type { AddressInfo } from "node:net";
 import type { Socket } from "node:net";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { UIMessage } from "ai";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
-import { Chat } from "@/components/chat";
+import { Chat, Turn } from "@/components/chat";
 import { findEndpoint } from "@/lib/endpoints/registry";
 
 /**
@@ -165,12 +166,18 @@ function control(name: RegExp): HTMLButtonElement | null {
   return screen.queryByRole("button", { name });
 }
 
-/** The text of every message on screen, in order. */
+/**
+ * The text of every Turn on screen, in order.
+ *
+ * Read from the bubbles themselves rather than from any one tag inside them:
+ * a Response is rendered as markdown, so its text sits in whatever element
+ * the renderer chose. Keying off the bubble keeps these assertions about what
+ * the reader sees, not about how it happens to be marked up.
+ */
 function turnsOnScreen(): string[] {
-  return screen
-    .getAllByText(/.*/)
-    .filter((node) => node.tagName === "SPAN")
-    .map((node) => node.textContent ?? "");
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(".rounded-2xl"),
+  ).map((bubble) => (bubble.textContent ?? "").trim());
 }
 
 /** Waits until the Endpoint has been asked for at least `count` Responses. */
@@ -187,10 +194,15 @@ function lastRequestBody() {
   return lastRequest?.messages;
 }
 
-/** The assistant Responses on screen, excluding any user message. */
+/**
+ * The assistant Responses on screen, excluding what the user typed.
+ *
+ * The two are told apart by which side they sit on: the user's own words are
+ * right-aligned, a Response left — the same distinction a reader relies on.
+ */
 function responseText() {
-  return turnsOnScreen()
-    .filter((text) => text !== "hello" && text !== "second question")
+  return Array.from(document.querySelectorAll<HTMLElement>(".justify-start .rounded-2xl"))
+    .map((bubble) => (bubble.textContent ?? "").trim())
     .join(" ");
 }
 
@@ -203,6 +215,57 @@ function wordsShown() {
 async function waitForResponseWords(count: number) {
   await waitFor(() => expect(wordsShown()).toBeGreaterThanOrEqual(count), { timeout: 5000 });
 }
+
+/**
+ * One Turn is one user message and the Response it produced. They are shown
+ * differently on purpose: a Response is formatted by the Model, whereas what
+ * the user typed is theirs to have shown back verbatim.
+ */
+
+const message = (role: "user" | "assistant", text: string): UIMessage => ({
+  id: "m1",
+  role,
+  parts: [{ type: "text", text }],
+});
+
+describe("a Turn in the Conversation", () => {
+  it("shows a Response as formatted text", () => {
+    const { container } = render(
+      <Turn message={message("assistant", "## Plan\n\n- one\n- two\n\n**done**")} />,
+    );
+
+    expect(container.querySelector("h2")).toBeTruthy();
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.querySelector("strong")?.textContent).toBe("done");
+  });
+
+  it("shows what the user typed literally, without formatting it as a Response", () => {
+    const { container } = render(<Turn message={message("user", "## not a heading")} />);
+
+    expect(container.querySelector("h2")).toBeNull();
+    expect(container.textContent).toContain("## not a heading");
+  });
+
+  it("keeps the user's own line breaks", () => {
+    const { container } = render(<Turn message={message("user", "first\nsecond")} />);
+
+    // Rendered as prose, a single newline is not a break; the user's own
+    // spacing is preserved so what they typed is what they see.
+    expect(container.querySelector("p")).toBeNull();
+    expect(container.textContent).toContain("first\nsecond");
+  });
+
+  it("does not let a code block widen the Turn out of its container", () => {
+    const { container } = render(
+      <Turn message={message("assistant", "```\n" + "x".repeat(400) + "\n```")} />,
+    );
+
+    // `min-w-0` is what lets the code block's own scroll box take effect
+    // inside the flex row rather than stretching it.
+    const bubble = container.querySelector("pre")?.closest(".rounded-2xl");
+    expect(bubble?.className).toContain("min-w-0");
+  });
+});
 
 describe("abandoning a Response", () => {
   it("offers a Stop control while a Response is in progress, and none otherwise", async () => {
