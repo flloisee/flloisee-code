@@ -4,15 +4,15 @@ import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
 import { useState } from "react";
 
-import { ENDPOINTS } from "@/lib/endpoints/registry";
+import { ModelPicker } from "@/components/model-picker";
+import { findEndpoint } from "@/lib/endpoints/registry";
+import { rememberModel, selectedModel } from "@/lib/models/selection";
 
 import { Markdown } from "./markdown";
 
 export type ChatProps = {
   /** The Endpoint the user has selected. */
   endpointId: string;
-  /** The Model the user has selected within that Endpoint. */
-  modelId: string;
 };
 
 /**
@@ -53,8 +53,13 @@ export function Turn({ message }: { message: UIMessage }) {
   );
 }
 
-export function Chat({ endpointId, modelId }: ChatProps) {
+export function Chat({ endpointId }: ChatProps) {
   const [input, setInput] = useState("");
+  // Keyed by Endpoint, so switching back to one restores the Model chosen there.
+  const [selection, setSelection] = useState<Record<string, string>>({});
+
+  const endpoint = findEndpoint(endpointId);
+  const modelId = selectedModel(selection, endpointId, endpoint?.defaultModelId ?? "");
 
   const { messages, sendMessage, status, stop, error, setMessages } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
@@ -79,11 +84,23 @@ export function Chat({ endpointId, modelId }: ChatProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* The chosen Model stays on screen above the Conversation, so it is
+          always clear which Model produced a Response. */}
+      <div className="px-4 pt-3">
+        <ModelPicker
+          endpointId={endpointId}
+          endpointName={endpoint?.name ?? endpointId}
+          modelId={modelId}
+          onSelect={(identifier) =>
+            setSelection((current) => rememberModel(current, endpointId, identifier))
+          }
+        />
+      </div>
+
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6">
         {messages.length === 0 && (
           <p className="text-center text-sm text-zinc-500">
-            Send a message to begin a Conversation with{" "}
-            {ENDPOINTS.find((endpoint) => endpoint.id === endpointId)?.name}.
+            Send a message to begin a Conversation with {endpoint?.name ?? endpointId}.
           </p>
         )}
         {messages.map((message) => (
