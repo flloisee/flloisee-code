@@ -115,6 +115,9 @@ importers:
       '@ai-sdk/react':
         specifier: ^4.0.136
         version: 4.0.136(react@19.3.0)(zod@4.6.5)
+      '@next/env':
+        specifier: 16.4.0
+        version: 16.4.0
       ai:
         specifier: ^7.0.133
         version: 7.0.133(zod@4.6.5)

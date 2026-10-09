@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.66",
     "@ai-sdk/react": "^4.0.136",
+    "@next/env": "16.4.0",
     "ai": "^7.0.133",
     "next": "16.4.0",
     "react": "19.3.0",
