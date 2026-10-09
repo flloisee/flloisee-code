@@ -105,6 +105,37 @@ export const QUANT_FLOOR_BITS = 4;
  */
 const QUALITY_BAR = "Q4_K_M";
 
+/** How many bits the quality bar spends, for the prefilter that has to know it. */
+export const QUALITY_BAR_BITS = QUANT_BITS[QUALITY_BAR];
+
+/**
+ * How many parameters a Model has, worked back from the size of one of its files.
+ *
+ * The inverse of `roughSizeBytes`, and it is exact enough to rank on: an 8B Model
+ * at Q4_K_M is 5.03 GB, and `5.03e9 × 8 ÷ 4.85` is 8.30B against a real 8.19B —
+ * **over** by 1.3%, because embeddings and the output head are usually quantised
+ * *above* the nominal bits of the rest and so spend more bytes per weight than the
+ * assumption credits them with. Erring high is the safe direction for a number
+ * whose job is to describe how much Model is in the file, and the bias is uniform,
+ * so it cancels when two Models are compared against each other.
+ *
+ * This is preferred over the parameter count in the Hub's listing for the number
+ * *shown* to the reader, because it is self-consistent with the size printed beside
+ * it: a reader who divides the two figures they can see gets this number back. The
+ * listing's count is still what orders candidates *before* they are measured, since
+ * by then nothing has been spent yet and this needs a file that has not been read.
+ *
+ * Null when the quantisation is one this module does not recognise, since a
+ * parameter count derived through an unknown bit-width is not a rough figure — it
+ * is an arbitrary one.
+ */
+export function parameterCount(bytes: number, quant: string): number | null {
+  const bits = bitsFor(quant);
+  if (bits === null || bits <= 0) return null;
+
+  return (bytes * 8) / bits;
+}
+
 /**
  * The bits a quantisation spends per weight, or null when the name is not one
  * this app knows.
@@ -287,15 +318,25 @@ export function chooseQuant(
  * is rejected without measuring, and one that survives is then measured for
  * real.
  *
+ * `bits` is the quantisation being assumed, and defaults to the 4-bit floor
+ * because that is the most permissive honest answer: below it nothing is ever
+ * recommended, so a Model that cannot fit there cannot fit at all. The
+ * Intelligence fit passes `QUALITY_BAR_BITS` instead, because it is asking a
+ * different question — not "could this run" but "could this be recommended" —
+ * and the gap between those two is where the 300B Models that exist solely as
+ * IQ2 files live. Pre-filtering them at the floor spends twenty measurements on
+ * repositories that will all be rejected, and returns an empty list on exactly
+ * the hardware large enough to have a good answer.
+ *
  * False negatives are possible and accepted: a Model whose parameter count
  * suggests it is too large can still have a small enough 4-bit quantisation. The
  * prefilter uses the low end of the range so those survive to be measured.
  */
-export function roughSizeBytes(parameterCountBytes: number): number {
+export function roughSizeBytes(parameterCountBytes: number, bits: number = QUANT_FLOOR_BITS): number {
   // `parameterCountBytes` is a count of parameters stored one byte each, so a
   // 4-bit quantisation of it is half as many bytes again. Dividing by eight
   // turns bits into bytes; the arithmetic is written out because getting it
   // wrong by a factor of eight would either reject every Model or admit them
   // all, and neither shows up as anything but a wrong list.
-  return (parameterCountBytes * QUANT_FLOOR_BITS) / 8;
+  return (parameterCountBytes * bits) / 8;
 }

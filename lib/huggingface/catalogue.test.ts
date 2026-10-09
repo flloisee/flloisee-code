@@ -20,26 +20,48 @@ const FAST: Request = {
   memoryBytes: 24 * 1024 ** 3,
   // 1008 GB/s theoretical at 80% achievable.
   bytesPerSecond: Math.round(1008 * 0.8 * 1024 ** 3),
+  rank: "speed",
 };
 
-/** Answers `/api/models?...` with a listing and `/tree/...` with a file list. */
-function stubHub(listing: unknown[], files: Record<string, unknown[]>): void {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+/**
+ * Answers `/api/models?...` with a listing and `/tree/...` with a file list.
+ *
+ * Returns the mock, because *which repositories were asked for* is itself worth
+ * asserting. How many measurements a fit spends, and on whom, is the difference
+ * between the two fits — and a test that only looks at the answer cannot tell a
+ * reordered list from a differently-asked question.
+ */
+function stubHub(listing: unknown[], files: Record<string, unknown[]>) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
 
-      if (url.includes("/tree/")) {
-        const repo = decodeURIComponent(url.split("/api/models/")[1].split("/tree/")[0]);
-        const body = files[repo];
-        return body === undefined
-          ? new Response("not found", { status: 404 })
-          : new Response(JSON.stringify(body), { status: 200 });
-      }
+    if (url.includes("/tree/")) {
+      const repo = repoOf(url);
+      const body = files[repo];
+      return body === undefined
+        ? new Response("not found", { status: 404 })
+        : new Response(JSON.stringify(body), { status: 200 });
+    }
 
-      return new Response(JSON.stringify(listing), { status: 200 });
-    }),
-  );
+    return new Response(JSON.stringify(listing), { status: 200 });
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+
+  return fetchMock;
+}
+
+/** The repository a file-tree request was about. */
+function repoOf(url: string): string {
+  return decodeURIComponent(url.split("/api/models/")[1].split("/tree/")[0]);
+}
+
+/** The repositories a run actually spent a measurement on. */
+function measured(mock: { mock: { calls: unknown[][] } }): string[] {
+  return mock.mock.calls
+    .map((call) => String(call[0]))
+    .filter((url) => url.includes("/tree/"))
+    .map(repoOf);
 }
 
 /** One listing entry: a repository, its popularity, and its parameter count. */
@@ -197,6 +219,226 @@ describe("the list put in front of the reader", () => {
     stubHub(listing, files);
 
     expect(await recommend(FAST)).toHaveLength(RECOMMENDATION_LIMIT);
+  });
+});
+
+describe("the two fits, asked the same question", () => {
+  // Twenty small Models the Hub is heavily used with, and five much larger ones
+  // almost nobody has downloaded. Which twenty get *measured* is the whole
+  // difference between the fits, so this fixture is built to make the two
+  // windows disagree: ranked by downloads the window is entirely small, and a
+  // list re-ordered by size would still be a list of small Models.
+  const manySmall = Array.from({ length: 20 }, (_, at) =>
+    entry(`small/model-${at}-GGUF`, 5_000_000 - at, 1_000_000_000),
+  );
+  const fewLarge = Array.from({ length: 5 }, (_, at) =>
+    entry(`large/model-${at}-GGUF`, 100 - at, 20_000_000_000),
+  );
+  const listing = [...manySmall, ...fewLarge];
+
+  const files = Object.fromEntries(
+    listing.map((item) => [
+      item.id,
+      // Realistic for the parameter count: a 1B at Q4_K_M is about 0.6 GB, a 20B
+      // about 12 GB. Both clear the 16 GB budget on this machine.
+      [{ path: "m-Q4_K_M.gguf", size: item.gguf.total * (4.85 / 8) }],
+    ]),
+  );
+
+  it("measures the largest Models for the Intelligence fit, not the most downloaded", async () => {
+    // The claim this tab rests on. Asking the Hub about the twenty most-downloaded
+    // Models would produce twenty small ones, and no amount of reordering those
+    // would surface a 20B.
+    const spy = stubHub(listing, files);
+
+    await recommend({ ...FAST, rank: "intelligence" });
+
+    expect(measured(spy).filter((repo) => repo.startsWith("large/"))).toHaveLength(5);
+  });
+
+  it("measures the most downloaded Models for the Speed fit, unchanged", async () => {
+    // The other tab keeps the window it had. Popularity is the whole ordering
+    // here, so the candidates worth measuring are the popular ones.
+    const spy = stubHub(listing, files);
+
+    await recommend({ ...FAST, rank: "speed" });
+
+    expect(measured(spy).filter((repo) => repo.startsWith("large/"))).toHaveLength(0);
+  });
+
+  it("puts the most parameters first, ahead of a more popular smaller Model", async () => {
+    stubHub(listing, files);
+
+    const results = await recommend({ ...FAST, rank: "intelligence" });
+
+    // The large ones have 100 downloads against five million. On the other tab
+    // they would be nowhere near the list.
+    expect(results[0].repo).toMatch(/^large\//);
+    expect(results[0].parameters).toBeGreaterThan(15e9);
+  });
+
+  it("separates two Models of the same size by how many people downloaded them", async () => {
+    // Download count is not demoted to nothing on this fit — it decides between
+    // Models that are equally large. It only never overtakes a difference in how
+    // much Model is on the disk.
+    //
+    // 14B at Q4_K_M is about 8.5 GB, inside the 16 GB this machine's budget
+    // allows; 4B is about 2.4 GB.
+    const tied = [
+      entry("less/liked-14b-GGUF", 4_000, 14_000_000_000),
+      entry("more/liked-14b-GGUF", 900_000, 14_000_000_000),
+      entry("smaller/4b-GGUF", 10, 4_000_000_000),
+    ];
+    stubHub(
+      tied,
+      Object.fromEntries(
+        tied.map((item) => [item.id, [{ path: "m-Q4_K_M.gguf", size: item.gguf.total * (4.85 / 8) }]]),
+      ),
+    );
+
+    const results = await recommend({ ...FAST, rank: "intelligence" });
+
+    expect(results.map((item) => item.repo)).toEqual([
+      "more/liked-14b-GGUF",
+      "less/liked-14b-GGUF",
+      "smaller/4b-GGUF",
+    ]);
+  });
+
+  it("offers on either fit only Models that clear both ceilings", async () => {
+    // The budget is shared between the fits, and deliberately so. "Intelligence
+    // over speed" is not a second budget that lets a Model through which the
+    // Speed fit would refuse — it is the same ceiling, ordered differently. What
+    // differs is which twenty candidates are measured, not what the answer to
+    // each of them is.
+    //
+    // Note what this is *not* asserting: that the two fits return the same
+    // Models. They cannot — different windows, different candidates — which is
+    // the subject of the two tests above.
+    stubHub(listing, files);
+
+    const ceiling = Math.min(FAST.memoryBytes, (FAST.bytesPerSecond ?? 0) / FAST.minTokensPerSecond);
+
+    for (const which of ["speed", "intelligence"] as const) {
+      for (const row of await recommend({ ...FAST, rank: which })) {
+        expect(row.bytes).toBeLessThanOrEqual(ceiling);
+        expect(row.tokensPerSecond).toBeGreaterThanOrEqual(FAST.minTokensPerSecond);
+      }
+    }
+  });
+});
+
+describe("the prefilter the two fits do not share", () => {
+  /**
+   * A repository published *only* as a quantisation below the floor.
+   *
+   * This is the shape that makes a large machine look empty. At 235B parameters a
+   * 4-bit guess says 117 GB, which fits a 192 GB machine comfortably; a Q4_K_M
+   * guess says 142 GB, which does not. So a prefilter at the floor lets it
+   * through, spends a measurement on it, and then `chooseQuant` refuses the only
+   * file in the repository — twenty measurements spent, nothing returned.
+   */
+  const onlyA2Bit = (at: number) => {
+    const repo = `huge/iq2-only-${at}-GGUF`;
+
+    return {
+      repo,
+      entry: entry(repo, 500 - at, 235_000_000_000),
+      files: [{ path: "m-IQ2_XXS.gguf", size: 60_000_000_000 }],
+    };
+  };
+
+  /** A Mac Studio: 192 GB, 800 GB/s, and a slider at its floor. */
+  const HUGE: Request = {
+    minTokensPerSecond: 5,
+    memoryBytes: 192 * 1024 ** 3,
+    bytesPerSecond: Math.round(800 * 0.8 * 1024 ** 3),
+    rank: "intelligence",
+  };
+
+  it("does not spend measurements on Models that could only be offered below the quality bar", async () => {
+    // The models this prefilter exists to skip. They pass a 4-bit guess and fail
+    // a Q4_K_M one, which is the only signal available before a file is read.
+    const noise = Array.from({ length: 25 }, (_, at) => onlyA2Bit(at));
+    const wanted = entry("good/30b-GGUF", 10, 30_000_000_000);
+
+    const spy = stubHub(
+      [...noise.map((item) => item.entry), wanted],
+      { ...Object.fromEntries(noise.map((item) => [item.repo, item.files])), "good/30b-GGUF": [{ path: "m-Q4_K_M.gguf", size: 18_000_000_000 }] },
+    );
+
+    await recommend(HUGE);
+
+    expect(measured(spy).filter((repo) => repo.startsWith("huge/"))).toEqual([]);
+  });
+
+  it("still finds the Model worth recommending on that hardware", async () => {
+    // The point of the prefilter. With it, the twenty slots go to Models that can
+    // actually be offered and the list is not empty; without it they would be
+    // filled by twenty 235B repositories that all fail the quality floor, and a
+    // machine large enough for a good answer would be shown nothing at all.
+    const noise = Array.from({ length: 25 }, (_, at) => onlyA2Bit(at));
+    const wanted = entry("good/30b-GGUF", 10, 30_000_000_000);
+
+    stubHub(
+      [...noise.map((item) => item.entry), wanted],
+      { ...Object.fromEntries(noise.map((item) => [item.repo, item.files])), "good/30b-GGUF": [{ path: "m-Q4_K_M.gguf", size: 18_000_000_000 }] },
+    );
+
+    const results = await recommend(HUGE);
+
+    expect(results.map((item) => item.repo)).toEqual(["good/30b-GGUF"]);
+  });
+
+  it("still measures them for the Speed fit, which is not looking for the largest", async () => {
+    // The prefilter is not a general tightening. Speed fit is ordered by
+    // popularity, where a 235B Model nobody has downloaded is a candidate like
+    // any other, and the floor is the right bar for a list that will never rank
+    // by size.
+    const noise = Array.from({ length: 3 }, (_, at) => onlyA2Bit(at));
+
+    const spy = stubHub(noise.map((item) => item.entry), {
+      ...Object.fromEntries(noise.map((item) => [item.repo, item.files])),
+    });
+
+    await recommend({ ...HUGE, rank: "speed" });
+
+    expect(measured(spy)).toHaveLength(3);
+  });
+});
+
+describe("the parameter count beside each recommendation", () => {
+  it("is worked back from the size of the file it recommends", async () => {
+    // Qwen3-8B at Q4_K_M is 5.03 GB, and `5.03e9 × 8 ÷ 4.85` is 8.30B against a
+    // real 8.19B — about 1.3% over, because embeddings and the output head are
+    // quantised above the nominal bits and so spend more bytes per weight than
+    // the assumption gives them credit for.
+    stubHub(
+      [entry("Qwen/Qwen3-8B-GGUF", 1, 8_190_000_000)],
+      { "Qwen/Qwen3-8B-GGUF": [{ path: "Qwen3-8B-Q4_K_M.gguf", size: 5_030_000_000 }] },
+    );
+
+    const { parameters } = (await recommend(FAST))[0];
+
+    expect(parameters).toBeGreaterThan(8_000_000_000);
+    expect(parameters).toBeLessThan(8_600_000_000);
+  });
+
+  it("is a number a reader can check against the size printed beside it", async () => {
+    // Why the number shown is derived from the measured file rather than read
+    // from the Hub's listing: a reader who divides the two figures they can see
+    // gets this one back. The listing's count is still what orders candidates
+    // before anything has been measured.
+    stubHub(
+      [entry("Qwen/Qwen3-8B-GGUF", 1, 8_190_000_000)],
+      { "Qwen/Qwen3-8B-GGUF": [{ path: "Qwen3-8B-Q4_K_M.gguf", size: 5_030_000_000 }] },
+    );
+
+    const row = (await recommend(FAST))[0];
+
+    // 5.03 GB read as 5,030,000,000 bytes, which is how the file tree reports it.
+    expect(row.bytes).toBe(5_030_000_000);
+    expect(row.parameters).toBeCloseTo((row.bytes * 8) / 4.85, -4);
   });
 });
 

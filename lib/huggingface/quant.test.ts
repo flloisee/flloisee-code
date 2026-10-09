@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { chooseQuant, quantIn, readQuantSizes, roughSizeBytes } from "./quant";
+import {
+  chooseQuant,
+  parameterCount,
+  QUALITY_BAR_BITS,
+  quantIn,
+  readQuantSizes,
+  roughSizeBytes,
+} from "./quant";
 
 /**
  * Reading quantised weights out of a file listing.
@@ -196,5 +203,60 @@ describe("a first guess at a Model's size, before measuring it", () => {
     const thirtyB = roughSizeBytes(32_100_000_000);
 
     expect(thirtyB / threeB).toBeCloseTo(10, 0);
+  });
+
+  it("can be asked about a quantisation above the floor, which costs more", () => {
+    // The Intelligence fit needs this. At 4 bits a 235B Model looks like 117 GB
+    // and fits a 192 GB machine; at Q4_K_M's 4.85 it is 142 GB and does not. That
+    // gap is the only signal available before a file has been read, and it is
+    // where the very large Models that exist *only* as 2-bit files live — the ones
+    // that would be measured, refused, and reported as an empty list.
+    //
+    // The budget is the same one the catalogue tests use: 640 GB/s of bandwidth
+    // with the slider at its floor of five tokens a second. Decimal throughout,
+    // because `gguf.total` is a count of bytes and 2^30 of them is not what the
+    // Hub or the hardware is talking about.
+    const budget = 137_400_000_000;
+
+    expect(roughSizeBytes(235_000_000_000)).toBeLessThanOrEqual(budget);
+    expect(roughSizeBytes(235_000_000_000, QUALITY_BAR_BITS)).toBeGreaterThan(budget);
+  });
+});
+
+describe("the parameter count a file works back to", () => {
+  it("recovers the size of the Model from the file recommended", () => {
+    // Qwen3-8B at Q4_K_M is 5.03 GB, and this works back to 8.30B against a real
+    // 8.19B.
+    expect(parameterCount(5_030_000_000, "Q4_K_M")).toBeCloseTo(8_300_000_000, -7);
+  });
+
+  it("errs high, because the embeddings and the output head cost more than the rest", () => {
+    // Those two are usually quantised *above* the nominal bits of the body, so a
+    // file spends more bytes per weight than the name suggests and dividing by
+    // the name's bits over-counts. Over-counting is the safe direction for a
+    // number whose job is to say how much Model is in the file: it never makes a
+    // Model look smaller and more capable than it is.
+    //
+    // The bias is uniform — every Model here carries the same few tensors at the
+    // higher precision — so it cancels when two are ranked against each other.
+    const derived = parameterCount(5_030_000_000, "Q4_K_M") ?? 0;
+
+    expect(derived).toBeGreaterThan(8_190_000_000);
+    expect(derived).toBeLessThan(8_190_000_000 * 1.05);
+  });
+
+  it("says it cannot tell rather than guessing, for a quantisation it does not know", () => {
+    // An unknown bit-width is not a rough figure — it is an arbitrary one. Null
+    // is what stops a Model being ranked by a number that came from nowhere.
+    expect(parameterCount(5_030_000_000, "Q4_K_HUGE")).toBeNull();
+  });
+
+  it("agrees with the size printed beside it, which is why it is derived this way", () => {
+    // The reason the number shown is worked back from the measured file rather
+    // than read from the Hub's listing: a reader dividing the two figures they
+    // can see gets this one back.
+    const bytes = 5_030_000_000;
+
+    expect(parameterCount(bytes, "Q4_K_M")).toBeCloseTo((bytes * 8) / 4.85, -4);
   });
 });

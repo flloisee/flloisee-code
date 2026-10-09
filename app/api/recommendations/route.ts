@@ -15,11 +15,13 @@ import { recommend, type Recommendation } from "@/lib/huggingface/catalogue";
  * running anything, and the answer should not depend on what happens to be
  * loaded or on which Endpoint the composer is pointed at.
  *
- * So the only input is the speed the reader wants. Everything else — the chip,
- * the memory, which machine it is — comes from this server, and every Model
- * comes from Hugging Face. A caller can raise or lower the speed and cannot
- * nominate a repository, a quantisation, a size or a destination, so this route
- * cannot be turned into a proxy for fetching something of the caller's choosing.
+ * So the inputs are how fast the reader wants a Response to arrive, and which of
+ * the two fits to answer — a number and a choice from a closed list. Everything
+ * else — the chip, the memory, which machine it is — comes from this server, and
+ * every Model comes from Hugging Face. A caller can raise or lower the speed,
+ * choose which ordering they are shown, and cannot nominate a repository, a
+ * quantisation, a size or a destination, so this route cannot be turned into a
+ * proxy for fetching something of the caller's choosing.
  *
  * POST, like every other Route Handler here, and for the same reason: with Cache
  * Components enabled a GET follows the prerender model of a page and the answer
@@ -27,18 +29,24 @@ import { recommend, type Recommendation } from "@/lib/huggingface/catalogue";
  */
 
 /**
- * The one thing a caller may say: how fast a Response has to arrive to be worth
- * recommending.
+ * Everything a caller may say.
  *
- * A number, bounded at both ends. It is not a path, a host or a repository, so
- * unlike those it cannot be a way of making the server fetch something else —
- * the Hub address is fixed below and the search terms are not in the request at
- * all. The bounds are there because a threshold of zero would divide by nothing
- * and one of ten million would ask for a Model no machine has.
+ * A speed, bounded at both ends, and which of the two fits to answer — two values
+ * from a closed list. Neither is a path, a host or a repository, so unlike those
+ * it cannot be a way of making the server fetch something else: the Hub address
+ * is fixed below and the search terms are not in the request at all. The bounds
+ * are there because a threshold of zero would divide by nothing and one of ten
+ * million would ask for a Model no machine has.
+ *
+ * `rank` is optional rather than required so that a caller who does not know
+ * about it — the tests, and any older client still in a browser tab — gets the
+ * default rather than a 400. Being absent cannot select a *third* behaviour,
+ * because the enum closes the set at two.
  */
 const recommendationRequestSchema = z
   .object({
     minTokensPerSecond: z.number().int().min(1).max(1000),
+    rank: z.enum(["speed", "intelligence"]).optional(),
   })
   .strict();
 
@@ -59,7 +67,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { minTokensPerSecond } = parsed.data;
+  const { minTokensPerSecond, rank = "speed" } = parsed.data;
 
   const spec = await probeHardware();
   const placement = await whereModelsRun(process.cwd());
@@ -100,8 +108,12 @@ export async function POST(request: Request) {
     minTokensPerSecond,
     bytesPerSecond: bandwidth,
     memoryBytes: usableMemoryBytes(spec) ?? 0,
+    rank,
   });
 
+  // `rank` is not echoed back. The interface already knows which fit it asked for,
+  // and a field in the answer it cannot contradict is one more thing that could
+  // disagree with what the reader is looking at.
   return Response.json({
     applies: true,
     reason: null,

@@ -6,9 +6,13 @@ import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
  * Asking the recommendations Route Handler from the interface.
  *
  * Goes to this app's own server, like every other request here — the browser
- * never contacts the Hub. The one thing this file can say is how fast a Response
- * should be, and the route takes nothing else.
+ * never contacts the Hub. The two things this file can say are how fast a
+ * Response should be and which of the two fits to show, and the route takes
+ * nothing else.
  */
+
+/** Which of the two fits to be shown. Mirrors the route's own enumeration. */
+export type Rank = "speed" | "intelligence";
 
 const recommendationSchema = z.object({
   repo: z.string(),
@@ -16,6 +20,7 @@ const recommendationSchema = z.object({
   downloads: z.number(),
   quant: z.string(),
   bytes: z.number(),
+  parameters: z.number(),
   tokensPerSecond: z.number(),
 });
 
@@ -104,6 +109,7 @@ export function readRecommendationAnswer({
 /** Asks which Models would run at a given speed on this machine. */
 export async function requestRecommendations(
   minTokensPerSecond: number,
+  rank: Rank = "speed",
 ): Promise<RecommendationAnswer> {
   let response: Response;
 
@@ -111,7 +117,7 @@ export async function requestRecommendations(
     response = await fetch("/api/recommendations", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ minTokensPerSecond }),
+      body: JSON.stringify({ minTokensPerSecond, rank }),
     });
   } catch {
     return readRecommendationAnswer({ status: 0, body: null });

@@ -1,4 +1,12 @@
-import { chooseQuant, readQuantSizes, roughSizeBytes, type QuantSize } from "./quant";
+import {
+  chooseQuant,
+  parameterCount,
+  QUALITY_BAR_BITS,
+  QUANT_FLOOR_BITS,
+  readQuantSizes,
+  roughSizeBytes,
+  type QuantSize,
+} from "./quant";
 
 /**
  * Finding Models that would run well on this machine.
@@ -14,6 +22,14 @@ import { chooseQuant, readQuantSizes, roughSizeBytes, type QuantSize } from "./q
  * you would actually download is per-quantisation and costs a second request
  * each. So the flow is: one listing, a cheap filter over the parameter counts,
  * then exact measurement of only the survivors.
+ *
+ * **Two fits, from the same machinery.** They differ in what they put first, and
+ * in which twenty candidates are worth measuring — which turns out to be the part
+ * that actually matters. Ordering candidates by downloads and then re-sorting the
+ * survivors by size would change nothing: the twenty most-downloaded GGUF
+ * text-generation Models on the Hub are small ones, so the largest of them is
+ * still small. The size fit has to spend its measurements on the largest
+ * candidates instead, or it has nothing new to say.
  *
  * Nothing here sends a Credential, and the request it makes carries no
  * information about the reader — see `lib/hardware/where.ts` for why the specs
@@ -50,9 +66,22 @@ export type Recommendation = {
   quant: string;
   /** Its true size on disk, summed across shards. */
   bytes: number;
+  /** How many parameters it has, worked back from the size above. */
+  parameters: number;
   /** Estimated tokens a second on this machine. */
   tokensPerSecond: number;
 };
+
+/**
+ * What the reader is optimising for.
+ *
+ * `speed` offers what is quickest to talk to; `intelligence` offers the most
+ * Model that fits, whatever pace that comes out at. They share a budget and a
+ * quantisation rule — the speed the reader asked for puts the same ceiling on
+ * size in both — and differ only in what is put first and in which candidates
+ * are worth measuring.
+ */
+export type Rank = "speed" | "intelligence";
 
 /** What the reader asked for, and what the machine can do about it. */
 export type Request = {
@@ -62,6 +91,8 @@ export type Request = {
   memoryBytes: number;
   /** Bytes per second this machine can move, or null when its chip is unknown. */
   bytesPerSecond: number | null;
+  /** Which of the two fits to answer. */
+  rank: Rank;
 };
 
 /**
@@ -78,11 +109,16 @@ export async function recommend(request: Request): Promise<Recommendation[]> {
   // on a Model's size, and the lower of the two is the one that binds. A Model
   // that would fit in memory but not clear the speed is not a Model worth
   // offering at that setting, and vice versa.
+  //
+  // Note that the slider is not disabled on the Intelligence fit — it is what
+  // turns it up. Dragged to its floor the bandwidth term grows past what memory
+  // allows and memory binds instead, which is exactly "intelligence over speed":
+  // the largest Model this machine can hold, at whatever pace that comes to.
   const budget = Math.min(request.memoryBytes, request.bytesPerSecond / request.minTokensPerSecond);
 
   if (budget <= 0) return [];
 
-  const measured = await measureCandidates(budget);
+  const measured = await measureCandidates(budget, request.rank);
 
   const recommendations: Recommendation[] = [];
 
@@ -93,14 +129,31 @@ export async function recommend(request: Request): Promise<Recommendation[]> {
     // instead would be offering something that answers in noise.
     if (quant === null) continue;
 
+    const parameters = parameterCount(quant.bytes, quant.quant);
+    // The quantisation was chosen out of this module's own table, so its name is
+    // one `bitsFor` recognises. A null here means the two tables have drifted
+    // apart, and a Model whose size cannot be turned into a parameter count
+    // cannot be ranked by one — dropped rather than shown with a zero beside it.
+    if (parameters === null) continue;
+
     recommendations.push({
       repo: candidate.repo,
       url: repoPage(candidate.repo),
       downloads: candidate.downloads,
       quant: quant.quant,
       bytes: quant.bytes,
+      parameters,
       tokensPerSecond: request.bytesPerSecond / quant.bytes,
     });
+  }
+
+  if (request.rank === "intelligence") {
+    // Parameters first, downloads only to break a tie. Download count is not
+    // demoted to noise here — two 14B Models of equal size are separated by it —
+    // but it never overtakes a difference in how much Model is on the disk.
+    return recommendations
+      .sort((a, b) => b.parameters - a.parameters || b.downloads - a.downloads)
+      .slice(0, RECOMMENDATION_LIMIT);
   }
 
   // Downloads, because it is the one signal here that is somebody else's
@@ -122,27 +175,48 @@ type Candidate = { repo: string; downloads: number; quants: QuantSize[] };
  * in the listing is free and is a lower bound on the size of any acceptable
  * quantisation, so a Model that cannot fit even at four bits is dropped before
  * anything is spent on it.
+ *
+ * Which twenty survive is where the two fits part company, and it is a larger
+ * difference than the final sort. Ranked by downloads the window is filled with
+ * the small Models the Hub is most used with; ranked by parameter count it is
+ * filled with the largest that could be recommended at all. Both windows are
+ * twenty requests, so the second costs exactly as much as the first and is the
+ * only way the size fit can be anything other than a reordering.
  */
-async function measureCandidates(budget: number): Promise<Candidate[]> {
+async function measureCandidates(budget: number, rank: Rank): Promise<Candidate[]> {
   const listing = await fetchJson(listingUrl());
   if (!Array.isArray(listing)) return [];
 
-  const plausible: { repo: string; downloads: number }[] = [];
+  const intelligence = rank === "intelligence";
+
+  // The size fit asks "could this be recommended", not "could this run". Filtering
+  // at the 4-bit floor admits the very large Models that are published only as
+  // 2-bit and 3-bit files, which no fit will ever offer — twenty measurements spent
+  // on repositories that are all rejected, and an empty answer on precisely the
+  // hardware that could have had a good one. Filtering at the quality bar costs
+  // the Models that publish nothing above Q4_K_S, which is a fair trade: this app
+  // would not have recommended them anyway.
+  const assumedBits = intelligence ? QUALITY_BAR_BITS : QUANT_FLOOR_BITS;
+
+  const plausible: { repo: string; downloads: number; parameterCountBytes: number }[] = [];
 
   for (const entry of listing) {
     const read = readListingEntry(entry);
     if (read === null) continue;
 
     // The cheap filter. `gguf.total` over-states every Model by roughly the
-    // quantisation ratio, and this comparison divides it down further to the
-    // 4-bit floor, so what survives is a set of Models that might fit — not one
-    // that definitely does.
-    if (roughSizeBytes(read.parameterCountBytes) > budget) continue;
+    // quantisation ratio, so what survives is a set of Models that might fit —
+    // not one that definitely does.
+    if (roughSizeBytes(read.parameterCountBytes, assumedBits) > budget) continue;
 
     plausible.push(read);
   }
 
-  plausible.sort((a, b) => b.downloads - a.downloads);
+  plausible.sort((a, b) =>
+    intelligence
+      ? b.parameterCountBytes - a.parameterCountBytes || b.downloads - a.downloads
+      : b.downloads - a.downloads,
+  );
 
   return measureInParallel(plausible.slice(0, MEASURE_LIMIT));
 }

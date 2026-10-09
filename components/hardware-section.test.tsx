@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { HardwareSection } from "./hardware-section";
 
@@ -43,15 +43,27 @@ function stubRoutes({ hardware = THIS_MACHINE, recommendations }: {
     ...recommendations,
   };
 
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const body = String(input).includes("/api/recommendations") ? answer : hardware;
-      const ok = (body as { ok?: boolean }).ok ?? true;
-      return new Response(JSON.stringify(body), { status: ok ? 200 : 500 });
-    }),
-  );
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const body = String(input).includes("/api/recommendations") ? answer : hardware;
+    const ok = (body as { ok?: boolean }).ok ?? true;
+    return new Response(JSON.stringify(body), { status: ok ? 200 : 500 });
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+
+  return fetchMock;
 }
+
+/** The bodies this section sent to the recommendations route, in order. */
+function asked(mock: { mock: { calls: unknown[][] } }): { minTokensPerSecond: number; rank: string }[] {
+  return mock.mock.calls
+    .map((call) => [String(call[0]), call[1] as RequestInit | undefined] as const)
+    .filter(([url]) => url.includes("/api/recommendations"))
+    .map(([, init]) => JSON.parse(String(init?.body)));
+}
+
+/** The tab for a fit, found by what it is called rather than by a class. */
+const tab = (name: string) => screen.getByRole("tab", { name });
 
 const aRecommendation = {
   repo: "Qwen/Qwen3-8B-GGUF",
@@ -59,6 +71,7 @@ const aRecommendation = {
   downloads: 2_000_000,
   quant: "Q4_K_M",
   bytes: 5_030_000_000,
+  parameters: 8_300_000_000,
   tokensPerSecond: 160,
 };
 
@@ -108,6 +121,149 @@ describe("the Hardware section on a machine it could read", () => {
     render(<HardwareSection />);
 
     expect(screen.getByText(/feels immediate/i)).toBeTruthy();
+  });
+});
+
+describe("the two fits, chosen by the reader", () => {
+  const answered = { applies: true, minTokensPerSecond: 50, recommendations: [aRecommendation] };
+
+  it("opens on the Speed fit, and says which one that is", async () => {
+    // Not decoration. A reader who cannot tell which ordering they are looking
+    // at has been shown a list whose whole point is invisible.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    await waitFor(() => expect(tab("Speed fit").getAttribute("aria-selected")).toBe("true"));
+    expect(tab("Intelligence fit").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("asks again by intelligence when that tab is chosen", async () => {
+    // The whole point: the two fits are different questions, and one of them is
+    // not the same list in another order. The route has to be told which was asked.
+    const spy = stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    await waitFor(() => expect(asked(spy)).toHaveLength(1));
+    expect(asked(spy)[0].rank).toBe("speed");
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(asked(spy)).toHaveLength(2));
+    expect(asked(spy)[1].rank).toBe("intelligence");
+  });
+
+  it("keeps the speed the reader chose when the fit changes", async () => {
+    // The slider is shared on purpose. "Intelligence over speed" is not a second
+    // budget — it is the same ceiling, ordered differently, and a reader who set
+    // 20 tokens a second did not agree to 50 when they clicked a tab.
+    const spy = stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    await waitFor(() => expect(asked(spy)).toHaveLength(1));
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(asked(spy)).toHaveLength(2));
+    expect(asked(spy)[1].minTokensPerSecond).toBe(50);
+  });
+
+  it("leads each row with whatever the fit is ordered by", async () => {
+    // The left column is the figure that explains the row's position, so it is
+    // the one the ordering uses. On this tab that is the parameter count.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    await waitFor(() => expect(screen.getByText("160 tok/s")).toBeTruthy());
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(screen.getByText("8.3B")).toBeTruthy());
+    expect(screen.queryByText("160 tok/s")).toBeNull();
+  });
+
+  it("keeps the pace beside a Model it recommends for being large", async () => {
+    // The honesty this tab most easily loses. The most capable Model a machine can
+    // hold may be far too slow to use, and dropping the number to make the tab
+    // look better would be precisely the lie the note beneath it exists to
+    // prevent.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(screen.getByText("8.3B")).toBeTruthy());
+    expect(screen.getByText(/160 tok\/s/)).toBeTruthy();
+  });
+
+  it("takes the other list away rather than showing it under this tab's name", async () => {
+    // A list ordered by pace, left on screen under "Intelligence fit" while the
+    // new answer is still coming, is a list that is briefly wrong about what it
+    // is — and the rows look identical either way, so nothing corrects it.
+    let intelligence = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+
+        if (url.includes("/api/recommendations")) {
+          intelligence = JSON.parse(String(init?.body)).rank === "intelligence";
+
+          // Never settles: this test is about the moment *before* the answer.
+          if (intelligence) return await new Promise<Response>(() => {});
+
+          return new Response(
+            JSON.stringify({
+              applies: true,
+              minTokensPerSecond: 50,
+              bandwidthBytesPerSecond: Math.round(120 * 0.8 * 1024 ** 3),
+              memoryBytes: 16 * 1024 ** 3,
+              recommendations: [aRecommendation],
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response(JSON.stringify(THIS_MACHINE), { status: 200 });
+      }),
+    );
+
+    render(<HardwareSection />);
+    await waitFor(() => expect(screen.getByText("Qwen/Qwen3-8B-GGUF")).toBeTruthy());
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(screen.queryByText("Qwen/Qwen3-8B-GGUF")).toBeNull());
+  });
+
+  it("says what the ordering on this tab is, and what it is worth", async () => {
+    // The Speed fit admits its ranking is popularity. This one has to admit its
+    // ranking is a proxy for capability, because more parameters is usually
+    // better and sometimes much less so — and a reader who does not know that
+    // would take the top row as the best Model on the Hub.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    expect(screen.getByText(/popularity rather than quality/i)).toBeTruthy();
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/rough proxy for capability/i)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/popularity rather than quality/i)).toBeNull();
+  });
+
+  it("still says the speeds were never measured on this machine", async () => {
+    // Said on both tabs, before either list is drawn. Switching fit does not
+    // retire the caveat.
+    stubRoutes({ recommendations: answered });
+    render(<HardwareSection />);
+
+    expect(screen.getByText(/not measured on it/i)).toBeTruthy();
+
+    fireEvent.click(tab("Intelligence fit"));
+
+    await waitFor(() => expect(screen.getAllByText(/not measured on it/i).length).toBe(1));
   });
 });
 

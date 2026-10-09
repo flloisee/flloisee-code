@@ -113,19 +113,29 @@ GPU and the Local Endpoints live on the same machine the app does.
 _Avoid_: specs, machine info, system info, device
 
 **Speed fit**:
-Whether this machine would speak a given Model at a pace worth reading — the
-question of *can this be used*, as distinct from *is this any good*. The pace a
-reader wants is a control rather than a constant, because the answer moves a long
-way across the range on any given machine: 50 tokens a second permits only small
-Models on an M4, while 20 permits one most people would want.
+Which Models this Hardware would speak at a pace worth reading, and the fit
+offered under that ordering — the question of *can this be used*, as distinct from
+*is this any good*. The pace a reader wants is a control rather than a constant,
+because the answer moves a long way across the range on any given machine: 50
+tokens a second permits only small Models on an M4, while 20 permits one most
+people would want.
 _Avoid_: performance, throughput, benchmark, speed
+
+**Intelligence fit**:
+The same Hardware and the same budget, ordered by how much Model fits rather than
+by how quickly it speaks. A proxy for capability and an honest one — it is how
+much of a Model is in the file — but a proxy all the same: more parameters is
+usually more capable and sometimes much less so, and the interface says so where
+the list is shown. Both fits draw on one slider, which is what makes them two
+readings of a single budget rather than two features.
+_Avoid_: quality, capability score, rating, ranking, size ordering
 
 **Fit**:
 Which Models from Hugging Face would run well on this Hardware, offered with the
 quantisation to download and a link to its repository. Deliberately independent of
 any Endpoint: a reader asking what they could run offline is not yet running
 anything, so the answer must not shift with whichever Endpoint the composer
-happens to be pointed at.
+happens to be pointed at. Comes as a **Speed fit** or an **Intelligence fit**.
 _Avoid_: recommendation, suggestion, compatibility, support
 
 **Estimated**:

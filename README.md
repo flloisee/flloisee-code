@@ -155,7 +155,7 @@ than a visible failure.
 | `POST /api/endpoints` | The Registry, with each Endpoint's configured state. |
 | `POST /api/models` | Model Discovery against one Endpoint. |
 | `POST /api/hardware` | What machine this app is running on. Takes nothing. |
-| `POST /api/recommendations` | Which Models would run at a given speed on that machine. |
+| `POST /api/recommendations` | Which Models would run at a given speed on that machine, and in which order to show them. |
 | `POST /api/keys` | Key Entry. Development only. |
 | `POST /api/roots` | Naming a **Root**, the **Grants** beyond it, the reader's own answers, and where a folder of a given name really is. Development only. |
 | `POST /api/files` | Naming a file from the Root: the `@` menu, and a verdict on a path the reader wrote. |
@@ -169,9 +169,9 @@ while asking what is in one writes nothing and therefore works in any build.
 `/api/hardware` and `/api/recommendations` take a deliberately narrow view of what a caller
 may say. The first takes **nothing** — `.strict()` on an empty object — because it shells out
 to fixed tools with a fixed argument vector, and the rule that no caller can influence which
-is the whole point of it. The second takes a single bounded number: how many tokens a second
-are worth having. Neither can name a repository, a search term or an address, so neither can
-be turned into a proxy for fetching something of a caller's choosing.
+is the whole point of it. The second takes a bounded number and a choice from a closed list of
+two fits. Neither can name a repository, a search term or an address, so neither can be turned
+into a proxy for fetching something of a caller's choosing.
 
 ## What would run on this machine
 
@@ -189,6 +189,31 @@ answer depends on the machine and a fixed threshold picks one for you. On a 16 G
 M4, 50 tokens a second permits only sub-2B Models; at 20, `Qwen3-8B` appears at
 roughly 21 tokens a second. That trade-off is the feature.
 
+### Two fits, one budget
+
+Below the hardware row, the section answers that question two ways, and the tabs
+pick between them. **Speed fit** leads with pace and is ordered by downloads.
+**Intelligence fit** leads with how much Model is in the file and is ordered by
+parameter count, downloads breaking a tie.
+
+They are not one list in two orders, and the difference is worth stating plainly:
+the twenty most-downloaded quantised text-generation Models on the Hub are small
+ones, so re-ordering *those* by size would still be a list of small Models. The
+Intelligence fit spends its twenty measurements on the largest candidates instead.
+Same twenty requests, and the only way the second tab can be anything other than a
+reshuffle.
+
+The slider serves both. Dragged to its floor the speed stops being the binding
+constraint, memory takes over, and "intelligence over speed" becomes simply the
+largest Model this machine can hold — at whatever pace that turns out to be. The
+pace is still shown on that tab, because the most capable Model a machine can hold
+may be far too slow to use, and hiding the number to make the tab look better
+would be the one thing this section must not do.
+
+Parameter count is a proxy for capability and the interface says so where the
+list is drawn, in the same way the speed fit admits that downloads are popularity
+rather than quality. Neither ordering is a measurement of merit.
+
 Three things it will not do, each because the alternative is a confident wrong
 answer:
 
@@ -204,6 +229,16 @@ answer:
   server is on a NAS across the hall, those are the wrong chips, so the section
   says so and offers nothing. The specs it did read are still accurate and still
   shown.
+
+A fourth refusal belongs to the Intelligence fit specifically, and it is the one
+that would otherwise make a large machine look broken. Its prefilter asks whether
+a Model could be *recommended*, not whether it could run, by testing the
+parameter count at `Q4_K_M`'s 4.85 bits rather than at the 4-bit floor. On a
+192 GB machine that gap is the difference between a 235B Model looking like 117 GB
+and looking like 142 GB — and the very large Models that exist *only* as 2-bit
+files sit exactly in it. Left in, twenty measurements go to repositories that all
+fail the quality floor and the tab returns nothing at all on precisely the hardware
+that could have had a good answer.
 
 ### Platform coverage
 
