@@ -375,6 +375,15 @@ whichever Endpoint was selected.** Both halves land in the same Conversation and
 store. That sentence belongs in the README's Proxying section, because Proxying is what makes it
 true.
 
+**A quota failure currently lies to the reader.** If a Saved Conversation holding file contents
+exceeds what the browser will store, the failure reaches the reader as "this browser will not
+open the Conversations database" — which describes a different problem, and is wrong exactly when
+the reader most needs to know what happened. The store has no size ceiling of its own,
+deliberately: the Tools' caps are the ceiling, and a second, smaller one would silently truncate
+a file the reader had already read. A megabyte is well inside what a browser database takes. So
+the fix is to tell the truth about *this* failure, not to prevent it. Found by ticket 07, not
+fixed there because it is outside its ticket, and recorded here so it is not lost.
+
 **Tool support is not uniform across 189 Endpoints.** A Model that cannot call Tools fails in a
 shape `lib/chat/failure.ts` has no case for, and that file's whole job is that nothing derived
 from a failure reaches the reader. A case belongs there before the feature ships, and it has to
