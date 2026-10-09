@@ -227,6 +227,26 @@ function renderOn(endpointId: string, endpointName: string, modelId: string) {
   );
 }
 
+/**
+ * Opens a Conversation that already holds the Turns below.
+ *
+ * The path a reopened Conversation takes, rather than one streaming in: `useChat`
+ * adopts these as its own history at mount, so what is on screen is what a
+ * reader gets back after closing and reopening a Conversation that read files.
+ */
+function renderSaved(messages: UIMessage[]) {
+  cleanup();
+  render(
+    <Chat
+      endpointId="ollama"
+      endpointName="Ollama"
+      modelId="llama3.2"
+      conversation={{ id: "c1", title: "A question", messages, updatedAt: 0 }}
+      onSave={onSave}
+    />,
+  );
+}
+
 afterEach(() => {
   cleanup();
   globalThis.fetch = REAL_FETCH;
@@ -308,6 +328,74 @@ const message = (role: "user" | "assistant", text: string): UIMessage => ({
   id: "m1",
   role,
   parts: [{ type: "text", text }],
+});
+
+/**
+ * What the reader can see of the files an answer was built from.
+ *
+ * The rest of this file drives the chat against a stub Endpoint that answers in
+ * words. These two cannot, because a read is not something an Endpoint says — it
+ * is something the Route Handler does on the Model's behalf and reports back as a
+ * part. So the Turns are seeded with the parts an Endpoint running the three Tools
+ * produces (verified against a stub in ticket 04), and what is asserted is what
+ * the real chat, holding them through `useChat`, puts on screen.
+ */
+describe("a Conversation that read files", () => {
+  /** One read that came back with a whole file, as `read_file` answers. */
+  const readOfRoute = (): UIMessage["parts"][number] => ({
+    type: "tool-read_file",
+    toolCallId: "call_1",
+    state: "output-available",
+    input: { path: "app/api/chat/route.ts" },
+    output: {
+      ok: true,
+      path: "app/api/chat/route.ts",
+      startLine: 1,
+      totalLines: 2,
+      lines: ["1: export async function POST(request: Request) {", "2: }"],
+      continuesAtLine: null,
+      note: "2 lines. This is the whole file.",
+    },
+  });
+
+  it("shows what was read, inside the Turn it was read for", () => {
+    renderSaved([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "what refuses an unknown Endpoint?" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "The route, on the Endpoint it was given." },
+          readOfRoute(),
+        ],
+      },
+    ]);
+
+    // A read is part of one Turn's answer rather than an exchange of its own, so
+    // the Conversation is still two Turns — and the file is named on the row, so
+    // the claim can be checked rather than believed.
+    expect(turnsOnScreen()).toHaveLength(2);
+    expect(document.querySelectorAll("[data-tool]")).toHaveLength(1);
+    expect(document.querySelector("[data-tool]")?.textContent ?? "").toContain(
+      "app/api/chat/route.ts",
+    );
+    expect(inUse()).toContain("Ollama");
+  });
+
+  it("says something for a Turn whose whole answer is a read", () => {
+    // A Model can call a Tool and the stream end before it has written a word.
+    // With only text parts rendered that Turn is an empty bubble, which is the
+    // one thing this suite already refuses to ship.
+    renderSaved([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "read me the route" }] },
+      { id: "a1", role: "assistant", parts: [readOfRoute()] },
+    ]);
+
+    for (const turn of turnsOnScreen()) {
+      expect(turn.length).toBeGreaterThan(0);
+    }
+    expect(responseText()).toContain("read_file");
+  });
 });
 
 describe("a Turn in the Conversation", () => {

@@ -2,11 +2,13 @@
 
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { isToolCall } from "@/lib/chat/tool-part";
 import type { SavedConversation } from "@/lib/conversations/store";
 
 import { Markdown } from "./markdown";
+import { ToolCall } from "./tool-call";
 
 export type ChatProps = {
   /** The Endpoint in use. Held by the caller, so it outlives this component. */
@@ -32,23 +34,25 @@ export type ChatProps = {
 /**
  * Renders one Turn as the user wrote it or as the model produced it.
  *
- * Message parts are rendered rather than plain strings so reasoning and tool
- * parts can appear later without reshaping this component.
+ * The parts of a Turn are rendered rather than joined into one string, because a
+ * Tool Call is a thing that happened partway through a Response: the prose before
+ * it and the prose after it were written on opposite sides of a file read, and
+ * rendering them as one block would hide the order the answer was built in.
+ * Consecutive text parts are still joined together, so a Response of nothing but
+ * words renders exactly as it did before.
  *
  * The two roles are shown differently on purpose. A Response is formatted text
  * the Model chose, so it is rendered as such. What the user typed is theirs to
  * have shown back verbatim, so it is left as written — including the single
  * newlines that a formatted rendering would otherwise swallow.
+ *
+ * **A Tool Call is not a Turn.** A read is part of one Turn's answer rather than
+ * a message of its own, so its row sits inside the Response that made it — which
+ * is what lets a reader see that a line the Model cited and the file it came
+ * from are two halves of the same thing.
  */
 export function Turn({ message }: { message: UIMessage }) {
   const fromUser = message.role === "user";
-
-  const text = message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    // A Response can arrive as several parts; blank lines keep them from
-    // merging into one paragraph when they are rendered together.
-    .join("\n\n");
 
   return (
     <div className={`flex ${fromUser ? "justify-end" : "justify-start"}`}>
@@ -71,10 +75,58 @@ export function Turn({ message }: { message: UIMessage }) {
             : "border border-rule bg-paper-2 text-ink-2"
         }`}
       >
-        {fromUser ? text : <Markdown>{text}</Markdown>}
+        {renderParts(message, fromUser)}
       </div>
     </div>
   );
+}
+
+/**
+ * A Turn's parts in the order they arrived, with its words kept together.
+ *
+ * The accumulating is the reason this is not a plain map: a Response the Model
+ * wrote around a read arrives as text, tool, text, and rendering each text part
+ * on its own would break every paragraph the Endpoint split for its own reasons
+ * into one line per part. So words are held back and flushed as a block whenever
+ * something that is not a word comes between two of them.
+ */
+function renderParts(message: UIMessage, fromUser: boolean): ReactNode[] {
+  const blocks: ReactNode[] = [];
+  let words: string[] = [];
+
+  const flush = () => {
+    if (words.length === 0) return;
+    // A Response can arrive as several parts; blank lines keep them from
+    // merging into one paragraph when they are rendered together.
+    const text = words.join("\n\n");
+    words = [];
+    blocks.push(
+      fromUser ? (
+        <span key={blocks.length}>{text}</span>
+      ) : (
+        <Markdown key={blocks.length}>{text}</Markdown>
+      ),
+    );
+  };
+
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      words.push(part.text);
+      continue;
+    }
+
+    flush();
+
+    // A dynamic Tool Call carries its name on the part rather than in its type,
+    // and `ToolCall` reads that too — so a Tool the app has no declaration for is
+    // still shown rather than vanishing the way a filtered-out part does.
+    if (isToolCall(part)) {
+      blocks.push(<ToolCall key={part.toolCallId} part={part} />);
+    }
+  }
+
+  flush();
+  return blocks;
 }
 
 export function Chat({
