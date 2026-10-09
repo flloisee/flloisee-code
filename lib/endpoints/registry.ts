@@ -31,3 +31,20 @@ export { CLOUD_ENDPOINTS };
 export function findEndpoint(id: string): Endpoint | undefined {
   return ENDPOINTS.find((endpoint) => endpoint.id === id);
 }
+
+/**
+ * Every variable name a Credential is known to live in.
+ *
+ * This is the whole point of it: Key Entry may write one of these names and
+ * nothing else. The Registry is the reviewed list of Endpoints, and each one's
+ * variable name is the name of the Credential that Endpoint expects — so this is
+ * every place a Credential legitimately lives, and the bound on what a write
+ * through the interface is allowed to touch.
+ */
+export const DECLARED_CREDENTIAL_VARS: ReadonlySet<string> = new Set(
+  ENDPOINTS.flatMap((endpoint) => (endpoint.credentialEnvVar ? [endpoint.credentialEnvVar] : [])),
+);
+
+export function isDeclaredCredentialVar(name: string): boolean {
+  return DECLARED_CREDENTIAL_VARS.has(name);
+}

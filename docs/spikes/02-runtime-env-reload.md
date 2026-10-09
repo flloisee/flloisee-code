@@ -51,6 +51,11 @@ documented usage, not a reach into internals.
 
 Scaffold route: `app/api/spike-env/route.ts` (POST-only, spike scaffolding).
 
+> The scaffold was removed once this finding was recorded, in ticket 05. It wrote
+> any variable name to `.env.local` with no development guard and no allowlist —
+> exactly the route Key Entry had to be built not to be. What follows is a record
+> of how these numbers were obtained, not a procedure that still works.
+
 ### Under `next dev`
 
 | # | Action | Result |

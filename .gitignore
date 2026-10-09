@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# A Credential being written: Key Entry's temporary file, which exists between
+# writing and renaming and would otherwise be an untracked secret that looks
+# like an ordinary new file.
+.key-entry-*.tmp
+
 # macOS AppleDouble resource forks (created when working on some volumes,
 # including external SSDs). Vitest picks these up as broken test files.
 ._*
