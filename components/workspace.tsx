@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-
 import { Chat } from "@/components/chat";
 import { ConversationList } from "@/components/conversation-list";
 import { Settings } from "@/components/settings";
@@ -10,11 +8,8 @@ import {
   type ConversationBackend,
 } from "@/lib/conversations/use-conversations";
 import { findEndpoint } from "@/lib/endpoints/registry";
-import {
-  rememberModel,
-  selectedModel,
-  type ModelSelection,
-} from "@/lib/models/selection";
+import { selectedModel } from "@/lib/models/selection";
+import { useSelection } from "@/lib/selection/use-selection";
 
 /**
  * The saved Conversations beside the chat.
@@ -38,12 +33,17 @@ import {
  * The Model choice stays keyed by Endpoint, so switching back to an Endpoint
  * restores the Model chosen there — that is `ModelSelection`'s own reason for
  * existing, and this is the second place it is needed.
+ *
+ * Both choices are kept between visits by `useSelection`, which reads them back
+ * out of the reader's own storage. They are not held in state here, and that is
+ * the whole point: setting an Endpoint up is work, and a reader who has already
+ * done it should find it done rather than be handed Ollama again on every visit.
  */
 export function Workspace({
   endpointId,
   backend,
 }: {
-  /** The Endpoint the Conversation opens on. */
+  /** The Endpoint the Conversation opens on, unless one was remembered. */
   endpointId: string;
   /**
    * The store to use, defaulting to the browser's own.
@@ -56,15 +56,19 @@ export function Workspace({
   const { conversations, current, ready, available, startNew, open, save, rename, remove } =
     useConversations(backend);
 
-  const [chosenEndpoint, setChosenEndpoint] = useState(endpointId);
-  const [selection, setSelection] = useState<ModelSelection>({});
+  const {
+    endpointId: chosenEndpoint,
+    models: selection,
+    chooseEndpoint,
+    chooseModel: rememberInEndpoint,
+  } = useSelection(endpointId);
 
   const endpoint = findEndpoint(chosenEndpoint);
   const endpointName = endpoint?.name ?? chosenEndpoint;
   const modelId = selectedModel(selection, chosenEndpoint, endpoint?.defaultModelId ?? "");
 
   function chooseModel(identifier: string) {
-    setSelection((current) => rememberModel(current, chosenEndpoint, identifier));
+    rememberInEndpoint(chosenEndpoint, identifier);
   }
 
   return (
@@ -79,13 +83,14 @@ export function Workspace({
         onRename={(id, title) => void rename(id, title)}
         onDelete={(id) => void remove(id)}
         // Rendered here and handed down as the list's footer, because the dialog
-        // edits state this component holds. The list still decides where it sits.
+        // edits the choice this component resolves for the chat. The list still
+        // decides where it sits.
         footer={
           <Settings
             endpointId={chosenEndpoint}
             endpointName={endpointName}
             modelId={modelId}
-            onSelectEndpoint={setChosenEndpoint}
+            onSelectEndpoint={chooseEndpoint}
             onSelectModel={chooseModel}
           />
         }

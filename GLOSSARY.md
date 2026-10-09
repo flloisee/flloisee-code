@@ -67,7 +67,9 @@ _Avoid_: registry, provider list, directory
 
 **Model**:
 A named AI model reachable through an Endpoint, addressed by the identifier that
-Endpoint's server recognizes.
+Endpoint's server recognizes. One is chosen per Endpoint, and that choice is kept
+in the Preference Store, so switching back to an Endpoint brings its Model with
+it rather than starting again from the one it declares.
 _Avoid_: engine, checkpoint, agent
 
 **Model Discovery**:
@@ -110,16 +112,19 @@ _Avoid_: reply, completion, output
 
 **Store**:
 Where the app keeps what it needs between visits. Two of them, on different
-axes and neither sharing anything: the **Preference Store** holds the Theme, and
-the Conversation Store holds Saved Conversations. Only the first is a
-name-and-value slot; the second is a database, because a Conversation is a
-growing list of Turns rather than a string.
+axes and neither sharing anything: the **Preference Store** holds the Theme and
+the Endpoint and Model the reader last chose, and the Conversation Store holds
+Saved Conversations. Only the first is a name-and-value slot; the second is a
+database, because a Conversation is a growing list of Turns rather than a
+string.
 _Avoid_: storage, persistence layer, backing store
 
 **Preference Store**:
-The browser's own small key-and-value storage, holding the Theme. Shared across
-versions of the app and readable by hand, so what comes back out is treated as
-untrusted and anything unusable falls back to the default.
+The browser's own small key-and-value storage, holding the Theme and the chosen
+Endpoint and Model. Shared across versions of the app and readable by hand, so
+what comes back out is treated as untrusted and anything unusable falls back to
+the default. Everything held here is a preference rather than content: it says
+how the app is set up, and no Turn is lost by it going missing.
 _Avoid_: settings, prefs, local storage
 
 **Conversation Store**:

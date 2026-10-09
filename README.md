@@ -130,6 +130,9 @@ would make every failure look like a chat failure.
   failure cheap to recover from.
 - Answers render as formatted Markdown (GitHub-flavoured), with a copy button on every code
   block.
+- The Endpoint and Model you chose are remembered between visits, so a Credential-requiring
+  Cloud Endpoint does not have to be set up again every time you open the app. Choices are
+  kept per Endpoint, so switching back brings the Model you chose there with it.
 - Conversations are saved to the browser's own storage and reopen after a reload, listed newest
   first in a sidebar. Each is named from the message that opened it — cut to something
   scannable — and can be renamed or deleted.
@@ -209,6 +212,7 @@ lib/
   conversations/                      Store, naming, the hook over both
   endpoints/                          Catalog, Registry, grouping, resolution, validation
   models/                             Discovery, parsing, selection
+  selection/                          The Endpoint and Model kept between visits
   theme.ts                            The Theme, and the Preference Store
   env.ts                              The only place a Credential is written
   chat/failure.ts                     Turning provider errors into readable text

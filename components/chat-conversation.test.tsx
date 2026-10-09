@@ -168,6 +168,10 @@ beforeEach(async () => {
   askedFor = [];
   loadedModels = [];
   streamDelayMs = 0;
+  // The app keeps the Endpoint and Model the reader chose, so these tests each
+  // start from a first visit: jsdom's storage is shared by every test in the
+  // file, and one test's choice of Endpoint would otherwise open the next on it.
+  window.localStorage.clear();
   // Every Endpoint used here is pointed at the stub, so a Response actually
   // arrives whichever one the reader has chosen. A test that only wired one
   // would see its later sends fail and read as a different bug.
@@ -433,6 +437,53 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
 
     await waitFor(() => expect(askedFor).toHaveLength(1), { timeout: 5000 });
     expect(askedFor[0].endpointId).toBe("ollama");
+
+    // Waited for the Response for the same cross-test reason as above.
+    await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
+  });
+});
+
+describe("the Endpoint and Model chosen survive a reload", () => {
+  it("opens again on what the reader last chose", async () => {
+    plans = [["One."]];
+    const first = renderApp();
+
+    await chooseSecondEndpoint();
+
+    // A Model chosen too, because the two are kept apart and either could
+    // quietly be the one that did not survive.
+    openSettings();
+    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
+      timeout: 5000,
+    });
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "neohorse-1-4b-mlx" },
+    });
+    closeSettings();
+
+    first.unmount();
+
+    // A fresh mount is what a reload looks like from in here: nothing is carried
+    // over in memory, so what opens is what was kept.
+    renderApp();
+
+    // Checked in the picker rather than trusted, because that is where the
+    // reader would look to see whether it took.
+    openSettings();
+    await pickerShows("lmstudio");
+    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("neohorse-1-4b-mlx");
+    closeSettings();
+
+    // And in the Request that follows, which is where it actually matters: a
+    // Conversation held with the Endpoint the reader chose is the whole point.
+    send("First question");
+
+    await waitFor(() => expect(askedFor).toHaveLength(1), { timeout: 5000 });
+    expect(askedFor[0].endpointId).toBe("lmstudio");
+    expect(askedFor[0].modelId).toBe("neohorse-1-4b-mlx");
 
     // Waited for the Response for the same cross-test reason as above.
     await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
