@@ -2,6 +2,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { convertToModelMessages, streamText } from "ai";
 import { z } from "zod";
 
+import { describeFailure } from "@/lib/chat/failure";
 import { findEndpoint } from "@/lib/endpoints/registry";
 import { resolveEndpoint } from "@/lib/endpoints/resolve";
 
@@ -36,8 +37,13 @@ export async function POST(request: Request) {
 
   const resolution = resolveEndpoint(endpoint, process.env);
   if (!resolution.ok) {
+    // Naming the variable is what makes setup obvious without reading source,
+    // and the interface is where a Credential is entered. The variable name is
+    // ours to show; the value it would hold never is.
     return Response.json(
-      { error: `${endpoint.name} has no Credential. Set ${resolution.missingEnvVar} and try again.` },
+      {
+        error: `${endpoint.name} has no Credential, so it cannot be used yet. Re-enter it in the interface, or set ${resolution.missingEnvVar} in your environment.`,
+      },
       { status: 400 },
     );
   }
@@ -63,21 +69,16 @@ export async function POST(request: Request) {
   });
 
   // The failure is described here, not left to the SDK's generic message, so
-  // the reader knows whether to start Ollama or fix a Credential. The
-  // underlying error is discarded because a provider error can echo the
-  // request back, and this text may be screenshotted.
+  // the reader knows whether to start Ollama, re-enter a Credential, or pick a
+  // different Model. The underlying error is discarded because a provider error
+  // echoes the request back — Credential and all — and this text may be
+  // screenshotted.
   return result.toUIMessageStreamResponse({
-    onError: () => describeFailure(endpoint.name, resolution.baseURL),
+    onError: (error) =>
+      describeFailure(error, {
+        endpointName: endpoint.name,
+        baseURL: resolution.baseURL,
+        modelId,
+      }),
   });
-}
-
-/** An unreachable Endpoint and an unrecognised Model are different problems to fix. */
-function describeFailure(endpointName: string, baseURL: string): string {
-  const isLocal = baseURL.includes("localhost") || baseURL.includes("127.0.0.1");
-
-  if (isLocal) {
-    return `Could not reach ${endpointName} at ${baseURL}. Check that it is running and that the Model identifier is one it has loaded.`;
-  }
-
-  return `${endpointName} could not complete the request. Check the Model identifier and the Endpoint's Credential.`;
 }

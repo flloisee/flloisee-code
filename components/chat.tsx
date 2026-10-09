@@ -73,7 +73,14 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
 
   // Regenerating rewrites the last Response, so it needs one to exist and
   // nothing else in flight; otherwise two Responses would race for the same Turn.
-  const canRegenerate = !inProgress && messages.at(-1)?.role === "assistant";
+  //
+  // A failed Turn is the exception: the request produced no Response at all, so
+  // the last message is still the user's own and there is nothing to rewrite.
+  // Offering Regenerate there is what lets a transient failure be retried
+  // without the message being typed a second time.
+  const awaitingResponse = status === "error" && messages.at(-1)?.role === "user";
+  const canRegenerate =
+    !inProgress && (messages.at(-1)?.role === "assistant" || awaitingResponse);
 
   function startFreshConversation() {
     setMessages([]);

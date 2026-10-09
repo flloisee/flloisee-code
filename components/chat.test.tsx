@@ -28,7 +28,7 @@ const REAL_BASE_URL = "http://localhost:11434/v1";
 const DELTA_INTERVAL_MS = 60;
 
 /** Words per Response. The Endpoint streams one delta per word, slowly. */
-type ResponsePlan = string[];
+type ResponsePlan = string[] | "reject" | "garbage";
 
 let stubURL = "";
 /** The answers the Endpoint will give, in order, one per call. */
@@ -97,7 +97,24 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const index = stubCalls++;
     lastRequest = JSON.parse(raw);
     callListener?.();
-    streamCompletion(res, plans[index] ?? ["nothing", "planned"]);
+
+    const planned = plans[index];
+
+    if (planned === "reject") {
+      // An Endpoint refusing the Credential, echoing the request back the way a
+      // real provider does. Nothing here may reach the reader.
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "invalid api key" } }));
+      return;
+    }
+
+    if (planned === "garbage") {
+      // A Response in a form the app cannot read: prose where a stream belongs.
+      res.writeHead(200, { "content-type": "text/event-stream" }).end("not a stream\n\n");
+      return;
+    }
+
+    streamCompletion(res, planned ?? ["nothing", "planned"]);
   });
 });
 
@@ -473,4 +490,138 @@ describe("the Conversation around a stopped or retried Response", () => {
       { role: "user", content: "second question" },
     ]);
   });
+});
+
+describe("a Request that fails", () => {
+  /** Waits for the failure the Route Handler reports to reach the screen. */
+  async function waitForFailure() {
+    await waitFor(() => expect(screen.getByRole("alert")).toBeDefined(), { timeout: 10_000 });
+    return screen.getByRole("alert").textContent ?? "";
+  }
+
+  it("is reported in the interface rather than failing silently", async () => {
+    endpointAnswers("reject");
+
+    sendMessage("hello");
+
+    expect(await waitForFailure()).not.toBe("");
+  }, 20_000);
+
+  it("keeps every earlier Turn, so the Conversation I had built survives", async () => {
+    endpointAnswers(["Answer to the first"], "reject");
+
+    sendMessage("hello");
+    await waitFor(() => expect(control(/regenerate/i)).not.toBeNull());
+
+    sendMessage("second question");
+    await waitForFailure();
+
+    // The context built up before the failure is still on screen and readable.
+    const onScreen = turnsOnScreen().join(" ");
+    expect(onScreen).toContain("hello");
+    expect(onScreen).toContain("Answer to the first");
+    expect(onScreen).toContain("second question");
+  }, 20_000);
+
+  it("leaves the input ready to type into, rather than holding the failed text", async () => {
+    endpointAnswers("reject");
+
+    sendMessage("hello");
+    await waitForFailure();
+
+    // The message is retryable rather than retyped, so the box is free for the
+    // next thing — and the Turn itself still shows what was asked.
+    expect((screen.getByPlaceholderText(/send a message/i) as HTMLTextAreaElement).value).toBe("");
+    expect(turnsOnScreen().join(" ")).toContain("hello");
+  }, 20_000);
+
+  it("can be retried without retyping the message", async () => {
+    endpointAnswers("reject", ["Recovered"]);
+
+    sendMessage("hello");
+    await waitForFailure();
+    expect(stubCalls).toBe(1);
+
+    // The failed Turn is still the user's message on screen, so it can be sent
+    // again as it stands rather than being composed a second time.
+    fireEvent.change(screen.getByPlaceholderText(/send a message/i), {
+      target: { value: "hello" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitForCalls(2);
+    expect(stubCalls).toBe(2);
+    await waitForResponseWords(1);
+    expect(responseText()).toContain("Recovered");
+  }, 20_000);
+
+  it("offers Regenerate after a failure, so the retry needs no retyping at all", async () => {
+    endpointAnswers("reject", ["Recovered"]);
+
+    sendMessage("hello");
+    await waitForFailure();
+
+    // Regenerate resends the last user message as it stands, so nothing has to
+    // be typed again for a transient failure to be worth another go.
+    await waitFor(() => expect(control(/regenerate/i)).not.toBeNull(), { timeout: 10_000 });
+
+    fireEvent.click(control(/regenerate/i)!);
+
+    await waitForCalls(2);
+    await waitForResponseWords(1);
+    expect(responseText()).toContain("Recovered");
+
+    // Retrying adds one Response to the failed Turn rather than a second copy
+    // of the message, and the failure is no longer being reported.
+    expect(turnsOnScreen().filter((text) => text === "hello")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  }, 30_000);
+
+  it("does not leave an empty bubble where a Response should have been", async () => {
+    endpointAnswers("reject");
+
+    sendMessage("hello");
+    await waitForFailure();
+
+    // Every Turn on screen holds text. A failed Response shows the reason rather
+    // than rendering as an empty bubble with nothing in it.
+    for (const turn of turnsOnScreen()) {
+      expect(turn.length).toBeGreaterThan(0);
+    }
+  }, 20_000);
+
+  it("shows the failure without echoing what the Endpoint said about the request", async () => {
+    endpointAnswers("reject");
+
+    sendMessage("hello");
+    const shown = await waitForFailure();
+
+    // The upstream body names the problem in the upstream's words; the reader
+    // gets ours, which is safe to screenshot.
+    expect(shown).not.toMatch(/invalid api key/i);
+    expect(shown).not.toMatch(/401|Unauthorized/i);
+  }, 20_000);
+
+  it("shows an error rather than an empty bubble when the Response is unreadable", async () => {
+    endpointAnswers("garbage");
+
+    sendMessage("hello");
+    const shown = await waitForFailure();
+
+    expect(shown).not.toBe("");
+    // Every Turn holds text: the reader is told why there is no answer, rather
+    // than being left with a blank bubble and no explanation.
+    for (const turn of turnsOnScreen()) {
+      expect(turn.length).toBeGreaterThan(0);
+    }
+  }, 20_000);
+
+  it("keeps the Conversation and the failed message on screen when the Response is unreadable", async () => {
+    endpointAnswers("garbage");
+
+    sendMessage("what is two plus two");
+    await waitForFailure();
+
+    expect(turnsOnScreen().join(" ")).toContain("what is two plus two");
+  }, 20_000);
 });
