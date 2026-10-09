@@ -23,13 +23,6 @@
  * answers exist: a rule clever enough to open a file would have to know the disk,
  * and a rule that knows the disk has to be the one that is right.
  *
- * What it does not decide is what may be read. A path that is recognised is
- * still refused by containment, on the server, in `mayRead` — the same function
- * the three Tools ask. Recognising a path is how the app comes to ask about one;
- * it is never how it comes to read one. That separation is the whole reason both
- * answers exist: a rule clever enough to open a file would have to know the disk,
- * and a rule that knows the disk has to be the one that is right.
- *
  * Nothing here tells a file from a folder, and nothing here touches the Root.
  * Whether a path is there, and what it is, is a question for the route.
  */

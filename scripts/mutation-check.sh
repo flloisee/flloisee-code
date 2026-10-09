@@ -91,9 +91,22 @@ trap 'restore; rm -rf $BACKUP_DIR' EXIT INT TERM
 # first, for a guard that one line of code enforces in more than one place. Mutating
 # one copy there would be caught by the tests for the others and read as evidence
 # that all of them are guarded.
+#
+# **Neither string may contain a `/`.** The substitution is `s/\Q$from\E/$to/`, so a
+# slash inside the quoted string closes the pattern early: the replacement silently
+# does not happen, and the entry below reports NOT APPLIED. That reads like the code
+# having drifted, so it cost an entry a whole guard once already — M36 aimed at
+# `already-granted` when the route said `already-decided`, and the guard it claimed
+# to check turned out to have no test at all. Aim such a string at an identifier
+# rather than at a path-like literal.
 run() {
   local label="$1" file="$2" from="$3" to="$4" tests="$5" scope="${6:-}"
   restore
+
+  if print -r -- "$from" | grep -q '/'; then
+    print "BROKEN      | $label | the text to replace contains a /, which ends the pattern"
+    return
+  fi
 
   perl -0pi -e "s/\Q$from\E/$to/$scope" $file
   if grep -qF "$from" $file; then
@@ -366,9 +379,13 @@ run "M35 grants a path outside the reader's own folders" $ROOTS_ROUTE \
 # The route records a Grant for a path the Root already covers, so the list the
 # reader reads to take permissions back is padded with entries no decision of
 # theirs backs — and the real Grants are harder to see.
+# Note: this reads `already-decided`, not the `already-granted` an earlier draft
+# used. The draft never applied, so the entry reported NOT APPLIED and the guard
+# looked covered while nothing tested it. See the `run` function's note on `/`
+# inside a substituted string, which is what turned that draft into a no-op.
 run "M36 grants a path the Root already covers" $ROOTS_ROUTE \
-  'if (covered.admitted) return { ok: false, reason: "already-granted" };' \
-  'if (false) return { ok: false, reason: "already-granted" };' \
+  'if (covered.admitted) return { ok: false, reason: "already-decided" };' \
+  'if (false && covered.admitted) return { ok: false, reason: "already-decided" };' \
   'app/api/roots/route.test.ts'
 
 # The Tools stop hearing the reader, so approving a read produces a Turn that says
