@@ -4,13 +4,18 @@ import { Chat } from "@/components/chat";
 import { ENDPOINTS } from "@/lib/endpoints/registry";
 
 export default function Home() {
+  // A Local Endpoint opens the Conversation: it needs no Credential, so the app
+  // is usable the moment a server is running. The Endpoint picker offers the rest
+  // of the Registry alongside it.
   const endpoint = ENDPOINTS[0];
 
   return (
     <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 font-sans">
       <header className="flex flex-col gap-0.5 py-6">
+        {/* The chosen Endpoint is named by the picker rather than here, since it
+            changes as soon as one is chosen. */}
         <h1 className="text-lg font-semibold tracking-tight text-black dark:text-zinc-50">
-          {endpoint.name}
+          Multi-Endpoint Chat
         </h1>
       </header>
 
