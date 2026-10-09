@@ -12,7 +12,6 @@ export default function Home() {
         <h1 className="text-lg font-semibold tracking-tight text-black dark:text-zinc-50">
           {endpoint.name}
         </h1>
-        <p className="text-sm text-zinc-500">{endpoint.defaultModelId}</p>
       </header>
 
       {/* useChat derives its id from Math.random(), which must not be evaluated
@@ -20,7 +19,9 @@ export default function Home() {
       <Suspense
         fallback={<div className="flex-1" aria-busy="true" aria-label="Loading chat" />}
       >
-        <Chat endpointId={endpoint.id} modelId={endpoint.defaultModelId} />
+        {/* The chosen Model is shown by the picker rather than here, since it
+            changes as the user discovers and picks one. */}
+        <Chat endpointId={endpoint.id} />
       </Suspense>
     </main>
   );
