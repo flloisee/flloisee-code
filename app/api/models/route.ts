@@ -1,8 +1,7 @@
 import { z } from "zod";
 
-import { findEndpoint } from "@/lib/endpoints/registry";
+import { resolveEndpointById } from "@/lib/endpoints/resolve";
 import { discoverModels } from "@/lib/models/discover";
-import { resolveEndpoint } from "@/lib/endpoints/resolve";
 
 /**
  * Model Discovery — a seam of its own, deliberately not part of the chat route.
@@ -38,15 +37,20 @@ export async function POST(request: Request) {
 
   const { endpointId } = parsed.data;
 
-  const endpoint = findEndpoint(endpointId);
-  if (!endpoint) {
+  // Through `resolveEndpointById` rather than `findEndpoint`, because a declared
+  // Endpoint lives in a file this server can read and the browser cannot — see
+  // `lib/endpoints/resolve.ts`.
+  const found = await resolveEndpointById(endpointId, process.cwd(), process.env);
+
+  if (found === undefined) {
     return Response.json(
       { error: `Unknown Endpoint: ${endpointId}.` },
       { status: 400 },
     );
   }
 
-  const resolution = resolveEndpoint(endpoint, process.env);
+  const { endpoint, resolution } = found;
+
   if (!resolution.ok) {
     // Named distinctly from a chat failure: nothing was generated here, and
     // the fix is a Credential rather than a different Model.

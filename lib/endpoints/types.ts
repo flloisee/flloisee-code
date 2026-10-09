@@ -59,5 +59,33 @@ export type CloudEndpoint = CatalogEntry & {
   defaultModelId: string;
 };
 
-/** Either kind of Endpoint. The Registry holds both. */
-export type Endpoint = LocalEndpoint | CloudEndpoint;
+/**
+ * An Endpoint the reader declares through the interface.
+ *
+ * The third source, and the only one not in source control. Local Endpoints are
+ * declared by hand in `registry.ts` and Cloud Endpoints come from the Catalog;
+ * both are reviewed as code because they decide where a Credential is sent. This
+ * one is written to `.endpoints.json` by the reader, and is checked at the point
+ * of entry instead — see `lib/endpoints/custom.ts` for which checks that is and
+ * what it gives up.
+ *
+ * `credentialEnvVar` is present only when the reader supplied a Credential. A
+ * server on their own machine needs none, which is why the field is optional
+ * here and why an Endpoint without one is Configured the moment it is written.
+ */
+export type DeclaredEndpoint = {
+  id: string;
+  name: string;
+  baseURL: string;
+  /** The Model in use until the reader picks another. */
+  defaultModelId: string;
+  /** The Models the reader said this Endpoint serves. A starting point, not the list. */
+  knownModels: readonly string[];
+  /** Present when a Credential was supplied; absent when none is needed. */
+  credentialEnvVar?: string;
+  /** Marks this Endpoint as the reader's own. Read by `groupOf` to group it. */
+  declared: true;
+};
+
+/** Any kind of Endpoint. The Registry holds all three. */
+export type Endpoint = LocalEndpoint | CloudEndpoint | DeclaredEndpoint;

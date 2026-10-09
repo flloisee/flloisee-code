@@ -36,6 +36,7 @@ const LOCAL: Status = {
   credentialEnvVar: null,
   configured: true,
   group: "local",
+  defaultModelId: "llama3.2",
 };
 const CLOUD_READY: Status = {
   id: "openrouter",
@@ -43,6 +44,7 @@ const CLOUD_READY: Status = {
   credentialEnvVar: "OPENROUTER_API_KEY",
   configured: true,
   group: "recommended",
+  defaultModelId: "openai/gpt-4o",
 };
 const CLOUD_BARE: Status = {
   id: "groq",
@@ -50,6 +52,7 @@ const CLOUD_BARE: Status = {
   credentialEnvVar: "GROQ_API_KEY",
   configured: false,
   group: "recommended",
+  defaultModelId: "llama-3.3-70b",
 };
 
 /** What the Registry route answers with: one Endpoint, or several. */
@@ -85,7 +88,7 @@ function appAnswers(statuses: () => Status[], reply?: (body: { envVar: string; c
           headers: { "content-type": "application/json" },
         });
 
-      if (url === "/api/endpoints") return json({ endpoints: statuses() }, 200);
+      if (url === "/api/endpoints") return json({ endpoints: statuses(), declaredTrouble: null }, 200);
 
       if (url === "/api/keys") {
         const body = JSON.parse(init.body as string);
@@ -271,7 +274,10 @@ describe("which Endpoints are Configured", () => {
         }
         reads += 1;
         return new Response(
-          JSON.stringify({ endpoints: [LOCAL, { ...CLOUD_BARE, configured }, CLOUD_READY] }),
+          JSON.stringify({
+            endpoints: [LOCAL, { ...CLOUD_BARE, configured }, CLOUD_READY],
+            declaredTrouble: null,
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }),
@@ -440,7 +446,10 @@ describe("a stored Credential", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        const body = url === "/api/endpoints" ? { endpoints: [LOCAL, CLOUD_BARE, LEAKY] } : {};
+        const body =
+          url === "/api/endpoints"
+            ? { endpoints: [LOCAL, CLOUD_BARE, LEAKY], declaredTrouble: null }
+            : {};
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: { "content-type": "application/json" },

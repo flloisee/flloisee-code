@@ -112,9 +112,24 @@ export type UseSelection = {
  * `defaultEndpointId` is the Endpoint the app opens on, handed in by the page
  * that chose it. It is what is used when nothing usable has been remembered, so
  * the choice of default stays where it was made rather than being repeated here.
+ *
+ * `declaredIds` are the Endpoints the reader added, as the server reported them.
+ * They exist here for one reason: a stored id is checked against the Registry
+ * before it is believed, and an Endpoint the reader declared is not in the
+ * Registry — it is in a file only the server can read. Passing the ids in keeps
+ * the check honest without this module having to read anything, and keeps a
+ * remembered custom Endpoint from being discarded as unknown on the next visit.
  */
-export function useSelection(defaultEndpointId: string): UseSelection {
+export function useSelection(
+  defaultEndpointId: string,
+  declaredIds: readonly string[] = [],
+): UseSelection {
   const [remembered, setRemembered] = useState<Remembered>(readFromStorage);
+
+  // Rebuilt only when the set of declared Endpoints actually changes, so a
+  // re-render with the same ids does not hand `parseChosenEndpoint` a new Set
+  // and re-resolve the choice underneath the interface.
+  const known = useMemo(() => new Set(declaredIds), [declaredIds]);
 
   /**
    * Told whenever the stored choice changes, from this window or another.
@@ -140,7 +155,9 @@ export function useSelection(defaultEndpointId: string): UseSelection {
       } else if (event.key === MODEL_CHOICES_STORAGE_KEY) {
         setRemembered((current) => ({ ...current, models: event.newValue }));
       } else {
-        // Some other preference, of this app or of another on this origin.
+        // Some other preference, of this app or of another on this origin —
+        // including `REGISTRY_CHANGED_KEY`, which changes what Endpoints exist
+        // rather than what the reader chose. `useRegistry` listens for that one.
         return;
       }
 
@@ -154,7 +171,7 @@ export function useSelection(defaultEndpointId: string): UseSelection {
   const storedEndpoint = useSyncExternalStore(subscribe, () => remembered.endpoint, nothingStored);
   const storedModels = useSyncExternalStore(subscribe, () => remembered.models, nothingStored);
 
-  const endpointId = parseChosenEndpoint(storedEndpoint, defaultEndpointId);
+  const endpointId = parseChosenEndpoint(storedEndpoint, defaultEndpointId, known);
 
   // Parsed once per stored value rather than once per render, so the map the
   // interface draws from is the same object for as long as the choice has not

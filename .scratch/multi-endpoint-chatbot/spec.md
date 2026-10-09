@@ -294,10 +294,9 @@ pattern.
 - Searching or filtering Saved Conversations
 - Tool calling and function invocation
 - File or image attachment
-- Creating arbitrary Endpoints through the interface — the interface offers known Cloud
-  Endpoints from the Catalog and declared Local Endpoints, and does not accept a
-  caller-supplied base URL
-- Removing or editing the Catalog through the interface; it is source-controlled
+- Removing or editing the Catalog through the interface; it is source-controlled.
+  Endpoints of the reader's own are a different thing and are now supported —
+  see "Endpoints of the reader's own" below
 - Key entry outside development, and any production-ready secret storage
 - Streaming responses or reconnect-to-stream after a dropped connection
 - Reasoning content and source citations
@@ -305,6 +304,44 @@ pattern.
 - Authentication and multi-user support; the app is single-user and local
 - Deployment to hosted infrastructure, which would put Local Endpoints out of reach
 - Mobile-specific layout beyond remaining usable on a narrow window
+
+## Endpoints of the reader's own
+
+Added after this spec was implemented, and it reverses one line of it above.
+
+The Out of Scope list said the interface "does not accept a caller-supplied base
+URL", and the reason was concrete rather than incidental: `app/api/keys` refuses
+any body carrying a field beyond a declared variable name and a Credential,
+because a caller naming its own destination next to a known provider's key is a
+way to collect that key elsewhere. The Catalog was source-controlled precisely
+because it decides where Credentials go.
+
+A reader with a vLLM box on their own network had no way to use it. So Endpoints
+can now be declared through the interface, into `.endpoints.json`.
+
+**The guardrail moved rather than disappeared.** Catalog addresses are still in
+source and no route writes to them, so `/api/keys` still refuses a body carrying
+an address and a Catalog Credential still cannot be redirected. What is new is
+that a declared Endpoint's address is read from a file the server owns, at the
+moment a Request is proxied, rather than taken from a Request.
+
+**What that gives up, stated rather than glossed.** Inside development, a caller
+who can reach `POST /api/endpoints/declared` can make the server issue an
+outbound HTTP request to an address they name. The Credential that travels with
+it is one they just typed, so there is no existing secret to collect. The route
+is development-only as `/api/keys` and `/api/roots` are, and the address is
+checked on entry: http or https, no embedded credentials, no empty host.
+
+**A Credential is not in `.endpoints.json`.** It goes to `.env.local` under
+`CUSTOM_<ID>_API_KEY`, through `saveAndReloadEnvValue` — still the one place in
+the app that writes a Credential. The derived name cannot collide with a
+Catalog variable, which is the failure this project has already had once, when
+eight Catalog entries shared a variable name and one typed key was proxied to
+several hosts.
+
+**A file may not shadow the Catalog.** `readDeclaredEndpoints` drops any entry
+whose id the Registry already holds, so a hand-edited `.endpoints.json` cannot
+redirect where a Catalog Credential is sent.
 
 ## Status
 

@@ -26,6 +26,7 @@ const LOCAL: EndpointStatus = {
   credentialEnvVar: null,
   configured: true,
   group: "local",
+  defaultModelId: "llama3.2",
 };
 const CLOUD_READY: EndpointStatus = {
   id: "openrouter",
@@ -33,6 +34,7 @@ const CLOUD_READY: EndpointStatus = {
   credentialEnvVar: "OPENROUTER_API_KEY",
   configured: true,
   group: "recommended",
+  defaultModelId: "openai/gpt-4o",
 };
 const CLOUD_BARE: EndpointStatus = {
   id: "groq",
@@ -40,6 +42,7 @@ const CLOUD_BARE: EndpointStatus = {
   credentialEnvVar: "GROQ_API_KEY",
   configured: false,
   group: "recommended",
+  defaultModelId: "llama-3.3-70b",
 };
 /** A Cloud Endpoint the Registry does not recommend, standing in for the other 182. */
 const CLOUD_OTHER: EndpointStatus = {
@@ -48,13 +51,23 @@ const CLOUD_OTHER: EndpointStatus = {
   credentialEnvVar: "SMALL_PROVIDER_API_KEY",
   configured: false,
   group: "others",
+  defaultModelId: "small-model",
+};
+/** One the reader declared through the interface, which needs no Credential. */
+const DECLARED: EndpointStatus = {
+  id: "my-server",
+  name: "My server",
+  credentialEnvVar: null,
+  configured: true,
+  group: "declared",
+  defaultModelId: "llama3.2",
 };
 
 function registryAnswers(entries: unknown[], status = 200) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
-      new Response(JSON.stringify({ endpoints: entries }), {
+      new Response(JSON.stringify({ endpoints: entries, declaredTrouble: null }), {
         status,
         headers: { "content-type": "application/json" },
       }),
@@ -203,18 +216,23 @@ function namesUnder(label: string) {
   return [...(group?.querySelectorAll("option") ?? [])].map((option) => option.textContent);
 }
 
-describe("the three groups the Registry is offered in", () => {
-  it("offers Local, then Cloud recommended, then Cloud others", async () => {
+describe("the four groups the Registry is offered in", () => {
+  it("offers the reader's own first, then Local, then Cloud recommended, then others", async () => {
     registryAnswers([LOCAL, CLOUD_READY, CLOUD_OTHER]);
 
     renderPicker();
     await screen.findByRole("combobox");
 
-    expect(groupLabels()).toEqual(["Local", "Cloud (Recommended)", "Cloud (Others)"]);
+    expect(groupLabels()).toEqual([
+      "Added by you",
+      "Local",
+      "Cloud (Recommended)",
+      "Cloud (Others)",
+    ]);
   });
 
   it("puts each Endpoint under the group the Registry gave it", async () => {
-    registryAnswers([LOCAL, CLOUD_READY, CLOUD_OTHER]);
+    registryAnswers([LOCAL, CLOUD_READY, CLOUD_OTHER, DECLARED]);
 
     renderPicker();
     await screen.findByRole("combobox");
@@ -222,6 +240,7 @@ describe("the three groups the Registry is offered in", () => {
     expect(namesUnder("Local")).toEqual(["Ollama"]);
     expect(namesUnder("Cloud (Recommended)")).toEqual(["OpenRouter"]);
     expect(namesUnder("Cloud (Others)")).toEqual(["A Small Provider — no Credential"]);
+    expect(namesUnder("Added by you")).toEqual(["My server"]);
   });
 
   it("trusts the Registry over its own idea of who is recommended", async () => {
@@ -248,7 +267,12 @@ describe("the three groups the Registry is offered in", () => {
     renderPicker();
     await screen.findByRole("combobox");
 
-    expect(groupLabels()).toEqual(["Local", "Cloud (Recommended)", "Cloud (Others)"]);
+    expect(groupLabels()).toEqual([
+      "Added by you",
+      "Local",
+      "Cloud (Recommended)",
+      "Cloud (Others)",
+    ]);
   });
 
   it("still annotates each Endpoint with whether it needs a Credential", async () => {

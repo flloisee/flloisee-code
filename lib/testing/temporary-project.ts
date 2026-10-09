@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { ENV_FILE } from "@/lib/env";
+import { ENDPOINTS_FILE } from "@/lib/endpoints/custom";
 import { ROOT_FILE } from "@/lib/roots/reading-root";
 
 /**
@@ -17,7 +18,9 @@ import { ROOT_FILE } from "@/lib/roots/reading-root";
  * The Reading Root file is here for the same reason and sits in the same place:
  * a Root records a folder on this machine, and a test that declared the
  * developer's own project folder as writable would be a test that changed what
- * the app was allowed to read.
+ * the app was allowed to read. `.endpoints.json` is here for the same reason
+ * again — it records servers on this machine's network, and a test writing to
+ * the real one would leave the developer's own Endpoints declared by a test.
  *
  * The environment snapshot is taken when the project is created, not when a test
  * begins — which is what makes it usable for a test about the environment that
@@ -49,6 +52,8 @@ export type TemporaryProject = {
   envFile(): string;
   /** The Reading Root file inside it, beside the environment file. */
   rootFile(): string;
+  /** The declared Endpoints file inside it, beside the other two. */
+  endpointsFile(): string;
   /**
    * For `beforeEach`: a fresh directory, the working directory set to it, and
    * the app running as a dev server would.
@@ -76,6 +81,7 @@ export async function temporaryProject(prefix = "key-entry-"): Promise<Temporary
     },
     envFile: () => path.join(dir, ENV_FILE),
     rootFile: () => path.join(dir, ROOT_FILE),
+    endpointsFile: () => path.join(dir, ENDPOINTS_FILE),
     async begin() {
       await removeDir();
       dir = await mkdtemp(path.join(tmpdir(), prefix));

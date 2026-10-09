@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
+import { DeclareEndpoint } from "@/components/declare-endpoint";
 import { KeyEntry } from "@/components/key-entry";
 import { ENDPOINT_GROUPS } from "@/lib/endpoints/groups";
 import { keyEntryIsAvailable } from "@/lib/endpoints/key-entry";
-import { requestEndpoints } from "@/lib/endpoints/request";
+import { useRegistry } from "@/lib/endpoints/use-registry";
 import type { EndpointStatus } from "@/lib/endpoints/status";
+import { announceRegistryChanged } from "@/lib/selection/store";
 
 /**
  * Choosing an Endpoint: pick one from the Registry by name, rather than typing a
@@ -15,6 +17,11 @@ import type { EndpointStatus } from "@/lib/endpoints/status";
  * The list and each Endpoint's Configured state come from the app's own server,
  * because whether a Credential is present is known only there — and no Credential
  * value ever crosses to the browser.
+ *
+ * The one place a base URL is typed is the button below, which opens a dialog
+ * rather than a field here. That separation is the point: this control is about
+ * choosing among Endpoints that exist, and an editable-looking dropdown is an
+ * invitation to type into a control that was never going to read it.
  */
 
 export type EndpointPickerProps = {
@@ -25,31 +32,15 @@ export type EndpointPickerProps = {
 };
 
 export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
-  const [answer, setAnswer] = useState<{
-    statuses: readonly EndpointStatus[];
-    trouble: string | null;
-  } | null>(null);
+  const answer = useRegistry();
 
-  // Bumped after a Key Entry, to ask the Registry again. The Environment changed
-  // underneath a running server, so what this list last said is stale — and the
-  // Endpoint only shows as Configured because of that second read.
-  const [reRead, setReRead] = useState(0);
+  // Announced rather than fetched here. The Environment and `.endpoints.json`
+  // have both changed underneath a running server, so every view of the Registry
+  // is now stale — not just this list — and asking again on its own would leave
+  // the rest of the interface showing the previous answer.
+  const onStored = useCallback(() => announceRegistryChanged(), []);
 
-  useEffect(() => {
-    let current = true;
-
-    void requestEndpoints().then((result) => {
-      if (current) setAnswer(result);
-    });
-
-    return () => {
-      current = false;
-    };
-  }, [reRead]);
-
-  const onStored = useCallback(() => setReRead((previous) => previous + 1), []);
-
-  const statuses = answer?.statuses ?? [];
+  const statuses = answer.statuses;
   const chosen = statuses.find((status) => status.id === endpointId);
 
   // Only a Cloud Endpoint needs a Credential, and only where Key Entry can run:
@@ -76,11 +67,16 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
           Endpoint
         </label>
 
+        {/* Disabled until the list has arrived, and disabled again if the
+            answer carried nothing to choose from. A list that arrived empty or
+            unreadable is not a list of choices, and offering the control over it
+            would be offering a stale or empty one — which is the exact thing the
+            `trouble` line below is there to explain. */}
         <select
           id="endpoint-picker"
           value={endpointId}
           onChange={(event) => onSelect(event.target.value)}
-          disabled={answer === null}
+          disabled={statuses.length === 0}
           className="hm-field flex-1"
         >
           {grouped.map(({ kind, label, entries }) => (
@@ -97,12 +93,23 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
       </div>
 
       {/* Reserved one line whether or not there is anything to say, so an
-          arriving message never shoves the Conversation down the page. */}
+          arriving message never shoves the Conversation down the page.
+
+          The reader's own Endpoints are reported separately from the list's own
+          failures: the built-in Endpoints are all present and usable, so a
+          corrupt `.endpoints.json` must not read as the whole Registry being
+          gone. */}
       <p role="status" className="hm-status">
-        {sayAboutChosen(answer, chosen)}
+        {answer.declaredTrouble ?? sayAboutChosen(answer, chosen)}
       </p>
 
       {keyEntryFor !== null && <KeyEntry endpointId={keyEntryFor} onStored={onStored} />}
+
+      <DeclareEndpoint
+        declared={statuses.filter((status) => status.group === "declared")}
+        onChanged={onStored}
+        onStored={onStored}
+      />
     </div>
   );
 }
@@ -119,13 +126,14 @@ export function EndpointPicker({ endpointId, onSelect }: EndpointPickerProps) {
  * would be a poor thing to ask of someone setting up an Endpoint.
  */
 function sayAboutChosen(
-  answer: { statuses: readonly EndpointStatus[]; trouble: string | null } | null,
+  answer: { statuses: readonly EndpointStatus[]; trouble: string | null },
   chosen: EndpointStatus | undefined,
 ): string {
-  if (answer === null) return "Reading the Endpoint list...";
-
   if (answer.trouble !== null) return answer.trouble;
 
+  // Covers both "the list has not arrived" and "the chosen id is no longer
+  // offered", which read the same way to the reader: there is nothing here to
+  // say about an Endpoint this app is not currently offering.
   if (chosen === undefined) return "Choose an Endpoint to hold a Conversation.";
 
   if (chosen.configured) {

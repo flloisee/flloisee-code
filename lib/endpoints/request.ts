@@ -22,9 +22,17 @@ const registryResponseSchema = z.object({
       // otherwise parse and land every Endpoint in "Cloud (Others)", and a
       // reader would see one undifferentiated list and conclude the Registry has
       // no recommendations — which is the opposite of what an older build said.
-      group: z.enum(["local", "recommended", "others"]),
+      group: z.enum(["declared", "local", "recommended", "others"]),
+      // Required rather than defaulted: the interface has to name the chosen
+      // Endpoint's starting Model and cannot work it out itself. An answer
+      // without it would leave the Model field empty for every Endpoint.
+      defaultModelId: z.string(),
     }),
   ),
+  // Required rather than defaulted, and nullable rather than absent, for the
+  // reason the array's own field is: an answer from a build that never heard of
+  // `.endpoints.json` must not be read as "the file is fine".
+  declaredTrouble: z.string().nullable(),
 });
 
 /** What the Registry route left the interface with. */
@@ -32,6 +40,15 @@ export type EndpointAnswer = {
   statuses: readonly EndpointStatus[];
   /** Why the list could not be read, in words the reader can act on. */
   trouble: string | null;
+  /**
+   * Set when the reader's own Endpoints could not be read.
+   *
+   * Separate from `trouble` because it is not the same failure: the built-in
+   * Endpoints are all listed and usable, and only the ones the reader added are
+   * missing. Reporting it as a failed list would suggest the whole Registry is
+   * gone and send them looking for a problem that is not there.
+   */
+  declaredTrouble: string | null;
 };
 
 /**
@@ -48,6 +65,7 @@ export function readEndpointStatuses({ status, body }: { status: number; body: u
     return {
       statuses: [],
       trouble: "Could not read the Endpoint list from the app.",
+      declaredTrouble: null,
     };
   }
 
@@ -59,8 +77,10 @@ export function readEndpointStatuses({ status, body }: { status: number; body: u
       credentialEnvVar: entry.credentialEnvVar,
       configured: entry.configured,
       group: entry.group,
+      defaultModelId: entry.defaultModelId,
     })),
     trouble: null,
+    declaredTrouble: parsed.data.declaredTrouble,
   };
 }
 

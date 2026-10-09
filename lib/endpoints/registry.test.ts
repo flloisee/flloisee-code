@@ -158,11 +158,31 @@ describe("how the Registry groups Endpoints", () => {
     ).toBe(true);
   });
 
-  it("orders the groups Local, then Cloud recommended, then Cloud others", () => {
+  it("offers the reader's own Endpoints first, then Local, recommended, then others", () => {
+    // Declared Endpoints lead because they are the ones the reader chose
+    // deliberately and the shortest list here; a reader who declared one server
+    // should not scroll past a hundred providers to reach it.
     expect(ENDPOINT_GROUPS.map((group) => group.kind)).toEqual([
+      "declared",
       "local",
       "recommended",
       "others",
     ]);
+  });
+
+  it("groups a declared Endpoint as the reader's own, whichever way it authenticates", () => {
+    // Grouped on the marker rather than on whether it needs a Credential: a
+    // server the reader added on their own machine is theirs, and grouping it by
+    // its key would put it in "Cloud (Others)" for no reason they could see.
+    const onTheirMachine = { ...LOCAL_ENDPOINTS[0], id: "my-ollama", declared: true } as const;
+    const acrossTheirNetwork = {
+      ...LOCAL_ENDPOINTS[0],
+      id: "my-vllm",
+      declared: true,
+      credentialEnvVar: "CUSTOM_MY_VLLM_API_KEY",
+    } as const;
+
+    expect(groupOf(onTheirMachine)).toBe("declared");
+    expect(groupOf(acrossTheirNetwork)).toBe("declared");
   });
 });

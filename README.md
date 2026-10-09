@@ -265,17 +265,49 @@ Named here so their absence reads as a decision rather than a gap:
 - Image attachment; a genuine image needs a Model that accepts one, and the same Turn has to
   work against every Endpoint in the Catalog
 - Writing, moving or deleting a file — the Tools only read
-- Creating arbitrary Endpoints through the interface — the Catalog is source-controlled,
-  and no caller-supplied base URL is accepted
 - Reasoning-token display and source citations
 - Authentication and multi-user support
 - Deployment to hosted infrastructure, which would put Local Endpoints out of reach
+
+## Endpoints of your own
+
+Beyond the Catalog, the reader can declare an Endpoint the app has no entry for — a
+vLLM box, a llama.cpp server, anything speaking the OpenAI-compatible format on
+their own network. Settings carries the button; the Endpoint is written to
+`.endpoints.json` beside `.env.local` and appears under **Added by you**.
+
+A Credential is optional, because a server on your own machine usually needs
+none, and several may be listed — the first is the starting Model until you pick
+another, and Model Discovery replaces that list as soon as the Endpoint answers.
+
+**No Credential goes in `.endpoints.json`.** It is written to `.env.local` under
+`CUSTOM_<ID>_API_KEY` by the same writer that handles every other key in this
+app, so the file holds an address and a name and nothing that authenticates.
+Both files are gitignored.
+
+### What this gives up, stated plainly
+
+Until now every base URL was fixed in source, which is what let `POST /api/keys`
+refuse any body carrying an address — a caller naming its own destination beside
+a known provider's Credential is a way to collect that key elsewhere. That
+refusal is unchanged and the Catalog's addresses are still in source, so a
+Catalog Credential still cannot be redirected.
+
+What is new is that a caller who can reach `POST /api/endpoints/declared` can
+make the server issue an outbound HTTP request to any address they name. That is
+a weaker primitive than the one above and it is not nothing: the Credential
+travelling with it is one the caller just typed, so there is no existing secret
+to steal. The route answers 404 outside development, as `/api/keys` and
+`/api/roots` do, and the address is checked on the way in — http or https only,
+no embedded credentials, no empty host. The reasoning is written out in full in
+`lib/endpoints/custom.ts`.
 
 ## Layout
 
 ```
 app/
   api/{chat,endpoints,files,keys,models,roots}/   Route Handlers, with tests alongside
+    endpoints/declared/                 Declaring an Endpoint of your own, and forgetting it
   page.tsx                            The Conversation, at the root
 components/
   workspace.tsx                       Saved Conversations beside the chat
@@ -283,10 +315,13 @@ components/
   settings.tsx                        Settings, as a dialog over the list
   modal.tsx                           The shell both dialogs sit in
   endpoint-picker, model-picker, key-entry, chat surface, markdown, theme-toggle
+  declare-endpoint                    Adding an Endpoint the app has no entry for
   root-picker, file-menu, named-files, tool-call, approval-answer
 lib/
   conversations/                      Store, naming, the hook over both
   endpoints/                          Catalog, Registry, grouping, resolution, validation
+    custom.ts                         Endpoints the reader declares, and `.endpoints.json`
+    use-registry.ts                   The one live answer about the Registry, shared
   models/                             Discovery, parsing, selection
   selection/                          The Endpoint and Model kept between visits
   theme.ts                            The Theme, and the Preference Store

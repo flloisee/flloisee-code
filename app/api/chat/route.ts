@@ -4,8 +4,7 @@ import { z } from "zod";
 
 import { describeFailure } from "@/lib/chat/failure";
 import { attachNamedFiles } from "@/lib/chat/attach-named-files";
-import { findEndpoint } from "@/lib/endpoints/registry";
-import { resolveEndpoint } from "@/lib/endpoints/resolve";
+import { resolveEndpointById } from "@/lib/endpoints/resolve";
 import { readReadingRoot } from "@/lib/roots/reading-root";
 import { fileTools } from "@/lib/tools/file-tools";
 import { readingApproval } from "@/lib/tools/approval";
@@ -136,15 +135,21 @@ export async function POST(request: Request) {
 
   const { endpointId, modelId, messages } = parsed.data;
 
-  const endpoint = findEndpoint(endpointId);
-  if (!endpoint) {
+  // Through `resolveEndpointById` rather than `findEndpoint`, because a declared
+  // Endpoint lives in `.endpoints.json`, which this server reads and the browser
+  // cannot. The address still comes from the server — see the note on the Root
+  // below for why that is the property this route depends on.
+  const found = await resolveEndpointById(endpointId, process.cwd(), process.env);
+
+  if (found === undefined) {
     return Response.json(
       { error: `Unknown Endpoint: ${endpointId}.` },
       { status: 400 },
     );
   }
 
-  const resolution = resolveEndpoint(endpoint, process.env);
+  const { endpoint, resolution } = found;
+
   if (!resolution.ok) {
     // Naming the variable is what makes setup obvious without reading source,
     // and the interface is where a Credential is entered. The variable name is

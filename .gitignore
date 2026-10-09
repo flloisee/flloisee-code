@@ -45,6 +45,14 @@ yarn-error.log*
 .reading-root.json
 .reading-root-*.tmp
 
+# Endpoints the reader declared: the addresses of servers on their own machine
+# or their own network, under names they chose. That is a map of someone's
+# private setup, and this repo is public. No Credential is in this file — those
+# go to .env.local, which is ignored above — but the addresses alone are not
+# anyone else's business.
+.endpoints.json
+.endpoints-*.tmp
+
 # Scratch directories left behind by a test run that did not clean up after
 # itself. Credentials are written into temp projects during Key Entry tests, so
 # a stray one must never be committable.

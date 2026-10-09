@@ -13,16 +13,21 @@
  */
 
 /** Which of the three groups an Endpoint is offered under. */
-export type EndpointGroup = "local" | "recommended" | "others";
+export type EndpointGroup = "declared" | "local" | "recommended" | "others";
 
 /**
  * The headings, in the order they are offered.
  *
- * Local first because it is the only group usable with nothing set up, and
+ * The reader's own Endpoints come first, because they are the ones they chose
+ * deliberately and are the shortest list here — a reader who declared one server
+ * should not scroll past a hundred providers to reach it.
+ *
+ * Local next because it is the only group usable with nothing set up, and
  * recommended before the rest because the point of grouping is that a reader
  * looking for Groq does not scroll past a hundred providers to reach it.
  */
 export const ENDPOINT_GROUPS: readonly { kind: EndpointGroup; label: string }[] = [
+  { kind: "declared", label: "Added by you" },
   { kind: "local", label: "Local" },
   { kind: "recommended", label: "Cloud (Recommended)" },
   { kind: "others", label: "Cloud (Others)" },

@@ -26,10 +26,18 @@ _Avoid_: offline endpoint, self-hosted endpoint, on-prem endpoint
 An Endpoint served by a third party over the network. Requires a Credential.
 _Avoid_: remote endpoint, hosted endpoint, online endpoint
 
+Note that Local and Cloud describe where an Endpoint is served, which is not the
+same question as whether it needs a Credential — a Declared Endpoint may be either,
+and is grouped as the reader's own rather than by where it happens to run.
+
 **Registry**:
-The full set of Endpoints the app offers: Cloud Endpoints drawn from the Catalog,
-Local Endpoints declared alongside it. Endpoints are added through the interface or by
-editing source, not by the app fetching a list at runtime.
+The full set of Endpoints the app offers: Cloud Endpoints drawn from the Catalog, Local
+Endpoints declared alongside it, and Declared Endpoints read from `.endpoints.json`. The
+first two are added through the interface or by editing source; the third is added only
+through the interface. None is fetched from a list at runtime, so an Endpoint that stops
+working stops working visibly rather than quietly changing. One answer about it is read
+at a time and shared by every view: a reader adding an Endpoint sees the picker and the
+chat header change together, never one ahead of the other.
 _Avoid_: endpoint list, config, collection
 
 **Configured**:
@@ -58,10 +66,28 @@ _Avoid_: key setup, credential configuration, onboarding
 **Catalog**:
 The reviewed set of known Cloud Endpoints held in source control, supplying base URLs
 and Credential variable names. Reviewed as code because it decides where Credentials are
-sent. It does not cover Local Endpoints. One Credential variable names exactly one
-service: where a vendor runs a service per region, each gets its own name rather than
-sharing one, so entering a Credential Configures the one Endpoint the reader chose.
+sent. It does not cover Local Endpoints, or Endpoints the reader has added for themselves.
+One Credential variable names exactly one service: where a vendor runs a service per region,
+each gets its own name rather than sharing one, so entering a Credential Configures the one
+Endpoint the reader chose. It is not edited through the interface.
 _Avoid_: registry, provider list, directory
+
+**Declared Endpoint**:
+An Endpoint the reader added through the interface, for a server the app has no entry for —
+something on their own machine or their own network. Held in `.endpoints.json` rather than
+in the Catalog, and checked at the point of entry instead: http or https, no Credential
+inside the URL, no id the Registry already holds. It needs no Credential to be Configured,
+because a server on the reader's own machine usually wants none. Its Credential is written
+to the environment file, never to the file holding the Endpoint. The name is the third
+source of an Endpoint, after the Catalog and the Local Endpoints, and the only one a file
+rather than source control holds.
+_Avoid_: custom endpoint, user endpoint, added endpoint, manual endpoint, own endpoint
+
+**Added by you**:
+The group a Declared Endpoint is offered under, and the first in the list. Named for whom
+the Endpoints in it belong rather than for where they run, because a server on the reader's
+own machine and one across their network are equally theirs.
+_Avoid_: custom, mine, my endpoints, local
 
 ## Models
 

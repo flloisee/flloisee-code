@@ -79,37 +79,63 @@ for (const id of RECOMMENDED_CLOUD_IDS) {
  * recommended cannot drift away from the Catalog entry it names — and so that
  * changing the recommendation list regroups every reader of the Registry at
  * once, without a second pass over the data.
+ *
+ * A declared Endpoint is grouped by its `declared` marker rather than by
+ * whether it has a Credential, because a server the reader added on their own
+ * machine is theirs whichever way it authenticates, and one they added across
+ * the network is theirs either. Grouping on `credentialEnvVar` would put a
+ * local server in "Cloud (Others)" for no reason a reader could see.
  */
 export function groupOf(endpoint: Endpoint): EndpointGroup {
+  if ("declared" in endpoint && endpoint.declared) return "declared";
   if (!("credentialEnvVar" in endpoint)) return "local";
   return RECOMMENDED_CLOUD_IDS.has(endpoint.id) ? "recommended" : "others";
 }
 
 /**
- * Every Endpoint the app offers: Cloud Endpoints from the Catalog, Local
- * Endpoints declared alongside it.
+ * Every Endpoint the app offers from source: Cloud Endpoints from the Catalog,
+ * Local Endpoints declared alongside it.
  *
- * One list, because choosing an Endpoint is one choice. A reader choosing an
- * Endpoint should not have to know which of the two sources it came from, and a
- * Cloud Endpoint with no Credential yet stays in the list so its absence is
- * visible rather than silent.
+ * **Declared Endpoints are not in this list, and that is deliberate.** They live
+ * in `.endpoints.json`, which only the server can read, and this module is
+ * imported by the browser — a client component reaching for a file would either
+ * bundle the reader's server addresses into the page or have to be handed the
+ * list as a prop. So the list the interface draws from arrives from the
+ * `/api/endpoints` route instead, which is the only place that can see both
+ * halves. `findEndpoint` below is therefore for source-controlled Endpoints, and
+ * `resolveEndpointById` in `lib/endpoints/resolve.ts` is what the routes use.
  */
 export const ENDPOINTS: readonly Endpoint[] = [...LOCAL_ENDPOINTS, ...CLOUD_ENDPOINTS];
 
+/**
+ * Ids the Registry holds, which a declared Endpoint may not take.
+ *
+ * Passed to the reader of `.endpoints.json` so a hand-edited file cannot shadow
+ * one of these. Shadowing would be the quiet version of the failure the spec
+ * records having already had once: an entry that answers to an id a Catalog
+ * Endpoint also answers to, decided by whichever list was read last.
+ */
+export const RESERVED_ENDPOINT_IDS: ReadonlySet<string> = new Set(ENDPOINTS.map((endpoint) => endpoint.id));
+
 export { CLOUD_ENDPOINTS };
 
+/** Finds an Endpoint this app holds in source, by id. */
 export function findEndpoint(id: string): Endpoint | undefined {
   return ENDPOINTS.find((endpoint) => endpoint.id === id);
 }
 
 /**
- * Every variable name a Credential is known to live in.
+ * Every variable name a Credential is known to live in, from source alone.
  *
  * This is the whole point of it: Key Entry may write one of these names and
  * nothing else. The Registry is the reviewed list of Endpoints, and each one's
  * variable name is the name of the Credential that Endpoint expects — so this is
  * every place a Credential legitimately lives, and the bound on what a write
  * through the interface is allowed to touch.
+ *
+ * A declared Endpoint's variable is not in here and does not need to be: it is
+ * not written through `/api/keys`. It is written when the Endpoint is declared,
+ * by `declareEndpoint`, under a name derived from the Endpoint's own id.
  */
 export const DECLARED_CREDENTIAL_VARS: ReadonlySet<string> = new Set(
   ENDPOINTS.flatMap((endpoint) => (endpoint.credentialEnvVar ? [endpoint.credentialEnvVar] : [])),

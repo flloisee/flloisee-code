@@ -8,6 +8,7 @@ import {
   type ConversationBackend,
 } from "@/lib/conversations/use-conversations";
 import { findEndpoint } from "@/lib/endpoints/registry";
+import { useRegistry } from "@/lib/endpoints/use-registry";
 import { selectedModel } from "@/lib/models/selection";
 import { useSelection } from "@/lib/selection/use-selection";
 
@@ -38,7 +39,14 @@ import { useSelection } from "@/lib/selection/use-selection";
  * out of the reader's own storage. They are not held in state here, and that is
  * the whole point: setting an Endpoint up is work, and a reader who has already
  * done it should find it done rather than be handed Ollama again on every visit.
+ *
+ * The chosen Endpoint's name and starting Model come from the Registry in source
+ * where that is enough, and from the server's answer where it is not — see the
+ * note at the lookup below. A built-in Endpoint needs no round trip, so a reader
+ * is never shown a raw id where a name belongs; a declared one is named by its
+ * id until the answer lands, and that answer is one request made on mount.
  */
+
 export function Workspace({
   endpointId,
   backend,
@@ -66,16 +74,50 @@ export function Workspace({
     removeAll,
   } = useConversations(backend);
 
+  /**
+   * The Registry, as the server reports it.
+   *
+   * Read through the shared hook rather than fetched here, so this and the
+   * Endpoint picker are looking at one answer instead of two taken at slightly
+   * different moments — which is how a declared Endpoint ends up in the list but
+   * not yet in the chat header.
+   */
+  const statuses = useRegistry().statuses;
+
+  // Ids only, and only the reader's own: this is what a stored choice is checked
+  // against, and the built-in ones the module checks for itself.
+  const declaredIds = statuses
+    .filter((status) => status.group === "declared")
+    .map((status) => status.id);
+
   const {
     endpointId: chosenEndpoint,
     models: selection,
     chooseEndpoint,
     chooseModel: rememberInEndpoint,
-  } = useSelection(endpointId);
+  } = useSelection(endpointId, declaredIds);
 
-  const endpoint = findEndpoint(chosenEndpoint);
-  const endpointName = endpoint?.name ?? chosenEndpoint;
-  const modelId = selectedModel(selection, chosenEndpoint, endpoint?.defaultModelId ?? "");
+  // Built-in Endpoints are resolved from the Registry directly, as they always
+  // were, and synchronously — so the very first render already names Ollama and
+  // carries its starting Model. Reading them from the server answer instead
+  // would leave the header showing a raw id and the Model field empty until the
+  // answer arrived, which is the visible jump `useSelection`'s own notes warn
+  // against.
+  //
+  // The server answer is what covers the Endpoints the Registry cannot see: a
+  // declared one lives in `.endpoints.json`, on the server's side of a boundary
+  // this component cannot cross. Those are named by their id until the answer
+  // lands, which is recognisable rather than blank, and the answer arrives
+  // before a reader could send a Turn.
+  const builtIn = findEndpoint(chosenEndpoint);
+  const fromServer = statuses.find((status) => status.id === chosenEndpoint);
+
+  const endpointName = builtIn?.name ?? fromServer?.name ?? chosenEndpoint;
+  const modelId = selectedModel(
+    selection,
+    chosenEndpoint,
+    builtIn?.defaultModelId ?? fromServer?.defaultModelId ?? "",
+  );
 
   function chooseModel(identifier: string) {
     rememberInEndpoint(chosenEndpoint, identifier);

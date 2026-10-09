@@ -3,6 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { describeEndpoints } from "@/lib/endpoints/status";
+import { declareEndpoint } from "@/lib/endpoints/custom";
+import { RESERVED_ENDPOINT_IDS } from "@/lib/endpoints/registry";
 import {
   setEnvVar,
   temporaryProject,
@@ -164,19 +166,97 @@ describe("the file Key Entry rewrites", () => {
 
 describe("an Endpoint after Key Entry", () => {
   it("is Configured for the next Request, and stays Configured through a later save", async () => {
-    const configured = () =>
-      describeEndpoints(process.env).find((endpoint) => endpoint.id === "openrouter")?.configured;
+    const configured = async () =>
+      (await describeEndpoints(process.env, project.dir)).statuses.find(
+        (endpoint) => endpoint.id === "openrouter",
+      )?.configured;
 
-    expect(configured()).toBe(false);
+    expect(await configured()).toBe(false);
 
     await enterKey({ envVar: DECLARED, credential: "sk-first" });
-    expect(configured()).toBe(true);
+    expect(await configured()).toBe(true);
 
     // A second Key Entry reloads the environment again, which rebuilds it from
     // the file. The first Credential is not in anyone's memory by now, so this
     // is where a Credential would be lost if only in-memory state carried it.
     await enterKey({ envVar: "GROQ_API_KEY", credential: "sk-second" });
-    expect(configured()).toBe(true);
+    expect(await configured()).toBe(true);
+  });
+});
+
+describe("Key Entry for an Endpoint the reader declared", () => {
+  // A custom Endpoint's Credential is written when it is declared. Key Entry
+  // taking a replacement is what makes a rotated key fixable without declaring
+  // the whole Endpoint again — so the route's bound on writable names had to
+  // widen, and these are the properties it had to keep while doing so.
+
+  const CUSTOM = "CUSTOM_MY_SERVER_API_KEY";
+
+  async function declareWithCredential() {
+    await declareEndpoint({
+      dir: project.dir,
+      name: "My server",
+      baseURL: "http://localhost:8000/v1",
+      models: ["qwen3-coder"],
+      credential: "sk-the-original",
+      reserved: RESERVED_ENDPOINT_IDS,
+    });
+  }
+
+  it("writes a replacement under the name derived from the Endpoint's own id", async () => {
+    await declareWithCredential();
+
+    const response = await enterKey({ envVar: CUSTOM, credential: "sk-a-replacement" });
+
+    expect(response.status).toBe(200);
+    expect(await readEnvFile()).toContain(`${CUSTOM}=sk-a-replacement`);
+  });
+
+  it("still refuses a name no Endpoint declares, so a caller cannot invent one", async () => {
+    await declareWithCredential();
+
+    const response = await enterKey({
+      envVar: "CUSTOM_NO_SUCH_ENDPOINT_API_KEY",
+      credential: "sk-somewhere-else",
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readEnvFile()).not.toContain("sk-somewhere-else");
+  });
+
+  it("still refuses a body carrying an address, for the reason it always did", async () => {
+    // Widening the set of writable names must not have widened what may be
+    // written beside one. A Catalog Credential redirected by this route would
+    // be the failure the whole schema exists to prevent.
+    await declareWithCredential();
+
+    const response = await enterKey({
+      envVar: CUSTOM,
+      credential: "sk-a-key",
+      baseURL: "https://evil.example/v1",
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readEnvFile()).not.toContain("sk-a-key");
+  });
+
+  it("makes the declared Endpoint Configured again after the replacement", async () => {
+    await declareWithCredential();
+    delete process.env[CUSTOM];
+
+    expect(
+      (await describeEndpoints(process.env, project.dir)).statuses.find(
+        (endpoint) => endpoint.id === "my-server",
+      )?.configured,
+    ).toBe(false);
+
+    await enterKey({ envVar: CUSTOM, credential: "sk-a-replacement" });
+
+    expect(
+      (await describeEndpoints(process.env, project.dir)).statuses.find(
+        (endpoint) => endpoint.id === "my-server",
+      )?.configured,
+    ).toBe(true);
   });
 });
 

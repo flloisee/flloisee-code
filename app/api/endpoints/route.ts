@@ -14,9 +14,13 @@ import { describeEndpoints } from "@/lib/endpoints/status";
  *
  * Declared with no parameter on purpose. Only the environment says whether a
  * Credential is present, and nothing sent by the browser can influence which
- * address an Endpoint uses — the Catalog decides that, and a request able to
- * name its own destination could redirect a Credential.
+ * address a Catalog Endpoint uses — those addresses are in source and no route
+ * writes to them. A declared Endpoint's address is read from `.endpoints.json`
+ * here, by the server, rather than taken from the request; see
+ * `lib/endpoints/custom.ts`.
  */
 export async function POST() {
-  return Response.json({ endpoints: describeEndpoints(process.env) });
+  const { statuses, declaredTrouble } = await describeEndpoints(process.env, process.cwd());
+
+  return Response.json({ endpoints: statuses, declaredTrouble });
 }

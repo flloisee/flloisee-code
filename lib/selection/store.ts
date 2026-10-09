@@ -40,6 +40,36 @@ export const ENDPOINT_STORAGE_KEY = "multi-endpoint-chat.endpoint";
 export const MODEL_CHOICES_STORAGE_KEY = "multi-endpoint-chat.models";
 
 /**
+ * The slot announcing that the Registry itself has changed.
+ *
+ * Not a preference: nothing reads it back. It exists so the one place that asks
+ * the server what Endpoints exist can tell the rest of the interface, and the
+ * reason it is a slot rather than a bespoke event is that `StorageEvent` is the
+ * one signal this app already broadcasts within its own window — `use-selection`
+ * dispatches one by hand precisely because a real one only reaches *other*
+ * windows. Reusing it means a change reaches every listener the same way.
+ *
+ * The alternative was passing the new list down from the picker through Settings
+ * and the Conversation list to `Workspace`, which needs it for the chosen
+ * Endpoint's name. That is two props and a layout dependency to carry a value
+ * one request already produces.
+ */
+export const REGISTRY_CHANGED_KEY = "multi-endpoint-chat.registry";
+
+/**
+ * Announces that the Registry has changed, to this window as well as others.
+ *
+ * Dispatches rather than setting: a `storage` event fired by this window does
+ * not reach this window, so a reader who adds an Endpoint would otherwise watch
+ * the picker update and the header not.
+ */
+export function announceRegistryChanged(): void {
+  if (typeof window === "undefined") return;
+
+  window.dispatchEvent(new StorageEvent("storage", { key: REGISTRY_CHANGED_KEY, newValue: "" }));
+}
+
+/**
  * How much of a stored Model map is read before it is refused outright.
  *
  * The map is one short Model identifier per Endpoint — a couple of hundred
@@ -99,13 +129,25 @@ export function writeStoredValue(
  * rather than being carried through: an unchecked id would leave the
  * Conversation pointed at an Endpoint with no name and no starting Model, which
  * reads as a broken app rather than as a forgotten choice.
+ *
+ * `alsoKnown` is what keeps this true for Endpoints the reader declared. Those
+ * live in `.endpoints.json`, which this module cannot read — it runs in the
+ * browser and the file is the server's — so the ids the server reported are
+ * passed in and held to the same test as the built-in ones. Without it a
+ * declared Endpoint would be rejected as unknown on the next visit and the
+ * reader would be quietly returned to Ollama every time they came back, which is
+ * the one thing this whole store exists to prevent.
  */
-export function parseChosenEndpoint(raw: string | null, fallback: string): string {
+export function parseChosenEndpoint(
+  raw: string | null,
+  fallback: string,
+  alsoKnown: ReadonlySet<string> = new Set(),
+): string {
   if (raw === null) return fallback;
 
   const trimmed = raw.trim();
 
-  return findEndpoint(trimmed) ? trimmed : fallback;
+  return findEndpoint(trimmed) || alsoKnown.has(trimmed) ? trimmed : fallback;
 }
 
 /**
@@ -156,8 +198,9 @@ export function parseModelChoices(raw: string | null): ModelSelection {
 export function readChosenEndpoint(
   storage: Pick<Storage, "getItem"> | null | undefined,
   fallback: string,
+  alsoKnown: ReadonlySet<string> = new Set(),
 ): string {
-  return parseChosenEndpoint(storedValue(storage, ENDPOINT_STORAGE_KEY), fallback);
+  return parseChosenEndpoint(storedValue(storage, ENDPOINT_STORAGE_KEY), fallback, alsoKnown);
 }
 
 /** The Model chosen in each Endpoint, as last remembered. */
