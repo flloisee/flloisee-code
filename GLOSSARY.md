@@ -78,8 +78,24 @@ _Avoid_: model enumeration, listing, scanning, probing
 ## Conversation
 
 **Conversation**:
-The ordered sequence of Turns currently held in the interface.
+The ordered sequence of Turns currently held in the interface. A Conversation
+can be **Saved** — kept in the reader's own browser between visits — and Saved
+Conversations are listed by name so one can be reopened.
 _Avoid_: chat, session, thread, history
+
+**Saved Conversation**:
+A Conversation held in the browser's own storage rather than only in the
+interface, so it survives a reload. It has a **Name**, and the reader can rename
+or delete it. Saved entirely on the reader's machine: there is no account and no
+copy anywhere else, which is also how the reader gets rid of them.
+_Avoid_: session, saved chat, thread, archive
+
+**Name**:
+What a Saved Conversation is called in the list. Derived once from the message
+that opened the Conversation — a cut of it, long enough to recognise the
+question and short enough to scan — and kept thereafter, so a rename sticks
+rather than being overwritten by the next Turn.
+_Avoid_: title, subject, label, preview
 
 **Turn**:
 One user message together with the assistant response it produced.
@@ -89,6 +105,33 @@ _Avoid_: exchange, round trip, request, interaction
 The assistant's answer within a Turn, reaching the interface incrementally as the
 Endpoint produces it rather than all at once on completion.
 _Avoid_: reply, completion, output
+
+## Storage
+
+**Store**:
+Where the app keeps what it needs between visits. Two of them, on different
+axes and neither sharing anything: the **Preference Store** holds the Theme, and
+the Conversation Store holds Saved Conversations. Only the first is a
+name-and-value slot; the second is a database, because a Conversation is a
+growing list of Turns rather than a string.
+_Avoid_: storage, persistence layer, backing store
+
+**Preference Store**:
+The browser's own small key-and-value storage, holding the Theme. Shared across
+versions of the app and readable by hand, so what comes back out is treated as
+untrusted and anything unusable falls back to the default.
+_Avoid_: settings, prefs, local storage
+
+**Conversation Store**:
+The reader's browser database of Saved Conversations. Chosen over key-and-value
+storage for three reasons that agree: a Conversation outgrows a string budget,
+reading it needs no synchronous parsing on the way to first paint, and a write is
+all-or-nothing, so a Conversation cannot be observed half-saved.
+_Avoid_: database, IndexedDB, persistence
+
+Where storage will not open at all — a reader who has blocked it, or a browser
+that will not — the interface says so and carries on without saving. Losing a
+Saved Conversation never costs the reader the Turns already on screen.
 
 ## Boundaries
 

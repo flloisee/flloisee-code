@@ -1,0 +1,93 @@
+"use client";
+
+import { useState } from "react";
+
+import { Chat } from "@/components/chat";
+import { ConversationList } from "@/components/conversation-list";
+import {
+  useConversations,
+  type ConversationBackend,
+} from "@/lib/conversations/use-conversations";
+import { rememberModel, type ModelSelection } from "@/lib/models/selection";
+
+/**
+ * The saved Conversations beside the chat.
+ *
+ * This is where the store and the chat meet. The list is on the left and the
+ * Conversation on the right, stacked at a narrow width so neither is squeezed
+ * into uselessness on a phone.
+ *
+ * The chat is rendered here rather than passed in as an element or a render
+ * function: a function cannot cross the server/client boundary under Cache
+ * Components, and holding the Endpoint here would give this component a second
+ * reason to change when the pickers are what actually own it.
+ */
+export function Workspace({
+  endpointId,
+  backend,
+}: {
+  /** The Endpoint the Conversation opens on. */
+  endpointId: string;
+  /**
+   * The store to use, defaulting to the browser's own.
+   *
+   * Taken as a prop so a test can point the whole path — list, save, reopen —
+   * at a database it controls, rather than asserting against jsdom's.
+   */
+  backend?: ConversationBackend | null;
+}) {
+  const { conversations, current, ready, available, startNew, open, save, rename, remove } =
+    useConversations(backend);
+
+  // Which Endpoint and Model are in use is held here rather than in `Chat`,
+  // because the chat below is remounted on every Conversation switch — that
+  // remount is what makes `useChat` adopt a saved Conversation's Turns — and
+  // state inside it would be thrown away each time. A reader who chose a Cloud
+  // Endpoint and then started a new Conversation would be handed Ollama back.
+  //
+  // The Model choice stays keyed by Endpoint, so switching back to an Endpoint
+  // restores the Model chosen there — that is `ModelSelection`'s own reason for
+  // existing, and this is the second place it is needed.
+  const [chosenEndpoint, setChosenEndpoint] = useState(endpointId);
+  const [selection, setSelection] = useState<ModelSelection>({});
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <ConversationList
+        conversations={conversations}
+        currentId={current.id}
+        ready={ready}
+        available={available}
+        onOpen={(id) => void open(id)}
+        onNew={startNew}
+        onRename={(id, title) => void rename(id, title)}
+        onDelete={(id) => void remove(id)}
+      />
+
+      {/*
+        Keyed on the Conversation id, so opening another one remounts the chat
+        and `useChat` adopts the new id and Turns at mount — which is the only
+        point at which it reads them. Remounting is also what stops a Response
+        streaming into the Conversation the reader just left.
+
+        The id is stable from when the Conversation is started, not minted on
+        first write, so saving — including a save that lands while a Response is
+        still streaming in — does not change the key and does not disturb the
+        stream. Only starting, opening, or deleting changes it.
+      */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" key={current.id}>
+        <Chat
+          endpointId={chosenEndpoint}
+          onSelectEndpoint={setChosenEndpoint}
+          modelSelection={selection}
+          onSelectModel={(identifier) =>
+            setSelection((current) => rememberModel(current, chosenEndpoint, identifier))
+          }
+          conversation={current}
+          onSave={save}
+          onStartNew={startNew}
+        />
+      </div>
+    </div>
+  );
+}

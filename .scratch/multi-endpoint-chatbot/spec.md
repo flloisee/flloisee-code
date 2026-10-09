@@ -289,8 +289,9 @@ pattern.
 ## Out of Scope
 
 - Anthropic and any Endpoint not speaking the OpenAI-compatible format
-- Conversation persistence — Conversations live in memory and are lost on reload
-- Multiple simultaneous Conversations, or naming and resuming them
+- Sharing Saved Conversations between machines or people — they live in the reader's
+  own browser, with no account and no copy anywhere else
+- Searching or filtering Saved Conversations
 - Tool calling and function invocation
 - File or image attachment
 - Creating arbitrary Endpoints through the interface — the interface offers known Cloud
@@ -307,7 +308,10 @@ pattern.
 
 ## Status
 
-Implemented on `spec/multi-endpoint-chatbot`. All nine tickets resolved.
+Implemented on `spec/multi-endpoint-chatbot`. All ten tickets resolved.
+
+Ticket 10 (Saved Conversations) took two items off this list — persistence, and multiple
+simultaneous Conversations with names — which the first nine left out deliberately.
 
 Two-axis code review found six classes of issue, all fixed. The consequential one
 was not a coding defect: eight Credential variable names were shared by catalog

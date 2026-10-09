@@ -2,18 +2,31 @@
 
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { EndpointPicker } from "@/components/endpoint-picker";
 import { ModelPicker } from "@/components/model-picker";
+import type { SavedConversation } from "@/lib/conversations/store";
 import { findEndpoint } from "@/lib/endpoints/registry";
-import { rememberModel, selectedModel } from "@/lib/models/selection";
+import { selectedModel, type ModelSelection } from "@/lib/models/selection";
 
 import { Markdown } from "./markdown";
 
 export type ChatProps = {
-  /** The Endpoint the Conversation opens on. The user can choose another. */
+  /** The Endpoint in use. Held by the caller, so it outlives this component. */
   endpointId: string;
+  /** Called with the id of the Endpoint the reader chooses. */
+  onSelectEndpoint: (endpointId: string) => void;
+  /** The Model chosen in each Endpoint, by Endpoint id. Held by the caller too. */
+  modelSelection: ModelSelection;
+  /** Called with the Model chosen in the current Endpoint. */
+  onSelectModel: (modelId: string) => void;
+  /** The saved Conversation open here, or null when starting a new one. */
+  conversation: SavedConversation | null;
+  /** Called with the Turns on screen, so the Conversation can be saved. */
+  onSave: (messages: UIMessage[]) => void;
+  /** Called when the reader asks for a fresh Conversation, so the chat can be detached. */
+  onStartNew?: () => void;
 };
 
 /**
@@ -64,20 +77,47 @@ export function Turn({ message }: { message: UIMessage }) {
   );
 }
 
-export function Chat({ endpointId: initialEndpointId }: ChatProps) {
+export function Chat({
+  endpointId,
+  onSelectEndpoint,
+  modelSelection,
+  onSelectModel,
+  conversation,
+  onSave,
+  onStartNew,
+}: ChatProps) {
   const [input, setInput] = useState("");
-  // Keyed by Endpoint, so switching back to one restores the Model chosen there.
-  const [selection, setSelection] = useState<Record<string, string>>({});
-  const [endpointId, setEndpointId] = useState(initialEndpointId);
 
   const endpoint = findEndpoint(endpointId);
-  const modelId = selectedModel(selection, endpointId, endpoint?.defaultModelId ?? "");
+  const modelId = selectedModel(modelSelection, endpointId, endpoint?.defaultModelId ?? "");
 
   const { messages, sendMessage, status, stop, error, setMessages, regenerate } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     // Bound re-renders while a Response streams in, so reading stays smooth.
     throttle: 50,
+    // Turns already stored for this Conversation, so opening a saved one shows
+    // what was in it rather than an empty chat. The id is what makes `useChat`
+    // treat these as its own history, so streaming a further Turn continues the
+    // saved Conversation instead of starting a parallel one.
+    id: conversation?.id,
+    messages: conversation?.messages,
   });
+
+  // Saved as the Turns change, so a reload reopens what was in front of the
+  // reader.
+  //
+  // Watching `messages` and debouncing is what makes this correct rather than
+  // merely cheap. Every streamed delta produces a new array, so each one
+  // re-arms the timer, and the save happens once the stream has been quiet for
+  // the interval — which is the settled Conversation, not a half-received one.
+  // Watching something coarser, such as the Turn count, would fire the save
+  // while a Response was still arriving and then never fire again, because
+  // streaming adds text without adding a Turn.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const timer = setTimeout(() => onSave(messages), 300);
+    return () => clearTimeout(timer);
+  }, [messages, onSave]);
 
   const inProgress = status === "submitted" || status === "streaming";
 
@@ -95,6 +135,10 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
   function startFreshConversation() {
     setMessages([]);
     stop();
+    // The New control in the composer does not know about the list, so the
+    // caller is told to detach this Conversation — otherwise the next save
+    // would write the fresh Turns into the one the reader just left open.
+    onStartNew?.();
   }
 
   function handleSubmit() {
@@ -117,15 +161,13 @@ export function Chat({ endpointId: initialEndpointId }: ChatProps) {
       {/* The chosen Endpoint and Model stay on screen above the Conversation, so
           it is always clear which one produced a Response. */}
       <div className="px-4 pt-3 sm:px-6">
-        <EndpointPicker endpointId={endpointId} onSelect={setEndpointId} />
+        <EndpointPicker endpointId={endpointId} onSelect={onSelectEndpoint} />
 
         <ModelPicker
           endpointId={endpointId}
           endpointName={endpoint?.name ?? endpointId}
           modelId={modelId}
-          onSelect={(identifier) =>
-            setSelection((current) => rememberModel(current, endpointId, identifier))
-          }
+          onSelect={onSelectModel}
         />
       </div>
 

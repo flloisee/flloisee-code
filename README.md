@@ -130,7 +130,12 @@ would make every failure look like a chat failure.
   failure cheap to recover from.
 - Answers render as formatted Markdown (GitHub-flavoured), with a copy button on every code
   block.
-- "New" starts a fresh Conversation. Conversations are in-memory only and are lost on reload.
+- Conversations are saved to the browser's own storage and reopen after a reload, listed newest
+  first in a sidebar. Each is named from the message that opened it — cut to something
+  scannable — and can be renamed or deleted.
+- "New" starts a fresh Conversation. An empty one is not saved, so the list holds no blank rows.
+- Where storage will not open, the interface says so and carries on without saving. Losing a
+  save never costs you the Turns already on screen.
 - Failures name the cause — start Ollama, re-enter a Credential, or pick a different Model —
   and never expose a Credential, so an error can be screenshotted safely. A failed request
   leaves the Conversation intact.
@@ -177,8 +182,10 @@ CSS v4 · Vercel AI SDK v7 (`@ai-sdk/openai-compatible`) · Zod v4 · Vitest 5 �
 Named here so their absence reads as a decision rather than a gap:
 
 - Anthropic and any Endpoint not speaking the OpenAI-compatible format
-- Conversation persistence — Conversations live in memory and are lost on reload
-- Multiple simultaneous Conversations, or naming and resuming them
+- Sharing Saved Conversations between machines or people — they live in the
+  reader's own browser, with no account and no copy anywhere else
+- Searching or filtering Saved Conversations; the list is ordered by recency and
+  nothing else
 - Tool calling and function invocation; file and image attachment
 - Creating arbitrary Endpoints through the interface — the Catalog is source-controlled,
   and no caller-supplied base URL is accepted
@@ -192,10 +199,15 @@ Named here so their absence reads as a decision rather than a gap:
 app/
   api/{chat,endpoints,keys,models}/   Route Handlers, with tests alongside
   page.tsx                            The Conversation, at the root
-components/                           Endpoint picker, Model picker, Key Entry, chat surface
+components/
+  workspace.tsx                       Saved Conversations beside the chat
+  conversation-list.tsx               The list of Saved Conversations
+  endpoint-picker, model-picker, key-entry, chat surface, markdown, theme-toggle
 lib/
+  conversations/                      Store, naming, the hook over both
   endpoints/                          Catalog, Registry, grouping, resolution, validation
   models/                             Discovery, parsing, selection
+  theme.ts                            The Theme, and the Preference Store
   env.ts                              The only place a Credential is written
   chat/failure.ts                     Turning provider errors into readable text
 scripts/                              Catalog refresh, mutation check

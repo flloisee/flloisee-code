@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
-import { Chat } from "@/components/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Workspace } from "@/components/workspace";
 import { LOCAL_ENDPOINTS } from "@/lib/endpoints/registry";
 
 export default function Home() {
@@ -20,12 +20,15 @@ export default function Home() {
     // One column, ruled top and bottom, centred by width rather than by
     // content. The page is an instrument panel: the Conversation is the whole
     // subject and the shell stays out of its way.
-    <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col border-x border-rule px-4 font-sans sm:px-6">
+    // Wider than one reading column, because the saved Conversations now sit
+    // beside it. The list has its own width, so the reading measure is unchanged
+    // and the page has not become a full-bleed transcript.
+    <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col border-x border-rule font-sans">
       {/* One row at every width. The wordmark is allowed to wrap rather than
           push the row wider than the screen, which is what `min-w-0` buys — so
           the two share a line at 320px without the wordmark being crushed into
           a single word per line. */}
-      <header className="flex items-center justify-between gap-3 py-5">
+      <header className="flex items-center justify-between gap-3 px-4 py-5 sm:px-6">
         {/* The chosen Endpoint is named by the picker rather than here, since it
             changes as soon as one is chosen. */}
         {/* The wordmark is the one place the display face appears in the running
@@ -48,7 +51,7 @@ export default function Home() {
       >
         {/* The chosen Model is shown by the picker rather than here, since it
             changes as soon as the user discovers and picks one. */}
-        <Chat endpointId={endpoint.id} />
+        <Workspace endpointId={endpoint.id} />
       </Suspense>
     </main>
   );

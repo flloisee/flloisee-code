@@ -6,11 +6,13 @@ import type { Socket } from "node:net";
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { UIMessage } from "ai";
+import { useState } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
 import { Chat, Turn } from "@/components/chat";
 import { findEndpoint } from "@/lib/endpoints/registry";
+import { rememberModel, type ModelSelection } from "@/lib/models/selection";
 
 /**
  * Drives the whole path the user drives, with nothing in the model layer stubbed:
@@ -172,8 +174,46 @@ beforeEach(() => {
     return REAL_FETCH(input, init);
   }) as typeof fetch;
 
-  render(<Chat endpointId="ollama" />);
+  // Rendered without a saved Conversation and with saving stubbed: these tests
+  // are about what the chat does with a Conversation in front of it, and
+  // persistence is exercised against a real store in `use-conversations.test.tsx`.
+  render(<Harness />);
 });
+
+/**
+ * Holds the Endpoint and Model the way the Workspace does, and renders the chat.
+ *
+ * In the shipping app these live above the chat, because the chat is remounted
+ * on every Conversation switch and state inside it would be lost each time.
+ * Reproduced here so these tests exercise the same wiring rather than a version
+ * of it that only exists in tests.
+ */
+function Harness() {
+  const [endpointId, setEndpointId] = useState("ollama");
+  const [selection, setSelection] = useState<ModelSelection>({});
+
+  return (
+    <Chat
+      endpointId={endpointId}
+      onSelectEndpoint={setEndpointId}
+      modelSelection={selection}
+      onSelectModel={(identifier) =>
+        setSelection((current) => rememberModel(current, endpointId, identifier))
+      }
+      conversation={null}
+      onSave={onSave}
+    />
+  );
+}
+
+/**
+ * Saving is a no-op here.
+ *
+ * These tests are about what the chat does with a Conversation in front of it;
+ * what would be stored is asserted against a real store in
+ * `use-conversations.test.tsx` and `chat-conversation.test.tsx`.
+ */
+const onSave: (messages: UIMessage[]) => void = () => {};
 
 afterEach(() => {
   cleanup();
