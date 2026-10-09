@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { POST } from "@/app/api/chat/route";
 import { Chat, Turn } from "@/components/chat";
 import { findEndpoint } from "@/lib/endpoints/registry";
+import { temporaryProject, type TemporaryProject } from "@/lib/testing/temporary-project";
 
 /**
  * Drives the whole path the user drives, with nothing in the model layer stubbed:
@@ -148,7 +149,21 @@ function endpointAnswers(...answers: ResponsePlan[]) {
 
 let writeText: ReturnType<typeof vi.fn>;
 
-beforeEach(() => {
+/**
+ * A project of its own to run the app in, with no folder it may read.
+ *
+ * The chat here is wired to the real Route Handler, so what the Endpoint is sent
+ * is decided by the route — including whether it carries the instructions for
+ * reading, which it does whenever a Root is declared. These tests are about what
+ * the reader said reaching the Endpoint intact, and that a Root declared in this
+ * checkout by a previous session in the running app would add a message none of
+ * them expect. `temporaryProject` puts the working directory somewhere empty, so
+ * "no Root" is a fact the suite establishes rather than one it hopes for.
+ */
+const project: TemporaryProject = await temporaryProject("chat-conversation-carry-");
+
+beforeEach(async () => {
+  await project.begin();
   stubCalls = 0;
   stubAborts = 0;
   callListener = null;
@@ -247,10 +262,11 @@ function renderSaved(messages: UIMessage[]) {
   );
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
   globalThis.fetch = REAL_FETCH;
   findEndpoint("ollama")!.baseURL = REAL_BASE_URL;
+  await project.end();
 });
 
 /** Sends a message the way a person does: type it, then press Send. */

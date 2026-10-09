@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { POST } from "@/app/api/chat/route";
 import { findEndpoint } from "@/lib/endpoints/registry";
+import { temporaryProject, type TemporaryProject } from "@/lib/testing/temporary-project";
 
 /**
  * Exercises the chat Route Handler against a real HTTP server speaking the
@@ -78,8 +79,29 @@ beforeAll(
 
 afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
-afterEach(() => {
+/**
+ * A project of its own to run the app in, with no folder it may read.
+ *
+ * The route reads the Root from a file in the working directory, so these tests
+ * are only about carrying a Conversation if no Root is declared — and that has to
+ * be this suite's doing rather than the developer's. A reader who has picked a
+ * folder in the running app has `.reading-root.json` in this very checkout, and
+ * a Turn then carries the instructions for reading as well as the Conversation.
+ * That is correct behaviour and the wrong thing for these assertions, which are
+ * about what the reader said reaching the Endpoint intact.
+ *
+ * `temporaryProject` puts the working directory somewhere empty, so "no Root" is
+ * a fact the suite establishes rather than one it hopes for.
+ */
+const project: TemporaryProject = await temporaryProject("chat-streaming-");
+
+beforeEach(async () => {
+  await project.begin();
+});
+
+afterEach(async () => {
   findEndpoint("ollama")!.baseURL = "http://localhost:11434/v1";
+  await project.end();
 });
 
 async function sendConversation(): Promise<{ raw: string; chunks: number }> {
