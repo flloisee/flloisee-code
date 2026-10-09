@@ -10,7 +10,7 @@ import {
   type TemporaryProject,
 } from "@/lib/testing/temporary-project";
 
-import { saveAndReloadEnvValue, type TempFileWriter } from "./env";
+import { canBeStoredVerbatim, saveAndReloadEnvValue, type TempFileWriter } from "./env";
 
 /**
  * The write and the reload, tested where they meet the disk.
@@ -161,5 +161,51 @@ describe("a write interrupted part way through", () => {
     // Nothing left behind that could be committed, or read back as a Credential.
     expect(await readdir(project.dir)).toEqual([".env.local"]);
     expect(process.env[DECLARED]).toBeUndefined();
+  });
+});
+/**
+ * Which values the environment file can hold back exactly.
+ *
+ * The predicate behind the route's refusal, so it is tested on its own rather
+ * than only through the route. Every character listed here was measured against
+ * the installed loader; a value that does not survive the round trip is stored
+ * and looks stored, and then fails at the Endpoint with nothing to connect it to
+ * what was typed. Refusing is the honest answer.
+ */
+describe("whether a Credential survives the environment file", () => {
+  it("accepts an ordinary Credential, which is the case that matters", () => {
+    expect(canBeStoredVerbatim("sk-or-v1-abc123_-.~")).toBe(true);
+  });
+
+  it("accepts the characters that do survive, however awkward they look", () => {
+    // Spaces and `#` are quoted on write and come back unchanged, so refusing
+    // them would refuse valid Credentials for no gain.
+    expect(canBeStoredVerbatim("sk with spaces")).toBe(true);
+    expect(canBeStoredVerbatim("sk#with#hashes")).toBe(true);
+    expect(canBeStoredVerbatim("sk'with'quotes")).toBe(true);
+    expect(canBeStoredVerbatim("sk\\with\\backslash")).toBe(true);
+    expect(canBeStoredVerbatim("sk=with=equals")).toBe(true);
+    expect(canBeStoredVerbatim("")).toBe(true);
+  });
+
+  it("refuses a value the loader would interpolate against the environment", () => {
+    // `sk-$USER` is read back as whatever USER happens to be, which is a
+    // different Credential rather than a mangled one.
+    expect(canBeStoredVerbatim("sk-$USER")).toBe(false);
+  });
+
+  it("refuses a quote, which the file cannot represent without leaving the escape in", () => {
+    expect(canBeStoredVerbatim('sk-"quoted')).toBe(false);
+  });
+
+  it("refuses a line break, which would end the entry and start a second assignment", () => {
+    expect(canBeStoredVerbatim("sk-first\nOPENROUTER_API_KEY=attacker-controlled")).toBe(false);
+    expect(canBeStoredVerbatim("sk-first\ropen")).toBe(false);
+  });
+
+  it("refuses a null byte, which the loader truncates at rather than rejecting", () => {
+    // Measured, not assumed: writing `a\0b` and reloading yields `a`. The rest
+    // of a Credential would be silently dropped rather than refused.
+    expect(canBeStoredVerbatim("sk-\0truncated")).toBe(false);
   });
 });

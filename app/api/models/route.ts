@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   // with the stored Credential, so probing never needs the key in the browser.
   const result = await discoverModels({
     baseURL: resolution.baseURL,
-    ...(resolution.apiKey ? { apiKey: resolution.apiKey } : {}),
+    ...(resolution.credential ? { credential: resolution.credential } : {}),
   });
 
   return Response.json({ endpointId, result });

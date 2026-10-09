@@ -162,13 +162,20 @@ function KeyEntryDialog({
 }
 
 /**
- * Says what the save did, including the outcome that is not a success.
+ * Says what the save did, including the two outcomes that are not a success.
  *
- * `shadowedByShell` gets its own wording rather than the route's bare `applied:
- * false`. The file was written, so the Credential *is* stored — but the shell is
- * serving a different value, and until that export goes the Endpoint is being
- * called with something the reader did not just type. Saying "saved" there would
- * be the one message that sends someone off to send a message and fail.
+ * Both come off the route's `applied: false`, and both are "written but not in
+ * use" — so both must avoid the stored wording, which would be the one message
+ * that sends someone off to send a message and fail.
+ *
+ * `shadowedByShell` means a value exported in the shell is serving instead. The
+ * file was written, so the Credential *is* stored, but until that export goes
+ * the Endpoint is being called with something the reader did not just type, and
+ * the fix is in their shell.
+ *
+ * `notApplied` means the environment is serving nothing at all for that name.
+ * The file is correct and nothing is shadowing it; the process simply has not
+ * picked it up, so the advice is to restart rather than to go hunting a shell.
  */
 function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
   if (answer === null) return null;
@@ -177,6 +184,19 @@ function KeyEntryMessage({ answer }: { answer: KeyEntryAnswer | null }) {
     return (
       <p role="status" className="text-xs text-green-700 dark:text-green-500">
         Stored in {answer.envVar}. It is in use now — no restart needed.
+      </p>
+    );
+  }
+
+  if (answer.status === "notApplied") {
+    // Stored, and nothing is serving a different value — the environment simply
+    // does not have this name yet. A warning rather than an alert: nothing is
+    // wrong with the Credential, and the fix is not something in the reader's
+    // shell either.
+    return (
+      <p role="alert" className="text-xs text-amber-700 dark:text-amber-500">
+        {answer.envVar} is written to the environment file, but this process is not carrying it
+        yet, so the Endpoint is still not Configured. Restart the dev server and enter it again.
       </p>
     );
   }

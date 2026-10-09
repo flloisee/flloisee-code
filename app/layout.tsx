@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Multi-Endpoint Chat",
-  description: "Hold a Conversation with whichever AI backend you point it at.",
+  description: "Hold a Conversation with whichever AI Endpoint you point it at.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

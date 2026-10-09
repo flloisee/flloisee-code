@@ -25,7 +25,7 @@ export type DiscoveryResult =
 export type DiscoveryRequest = {
   baseURL: string;
   /** Absent for a Local Endpoint, which needs no Credential. */
-  apiKey?: string;
+  credential?: string;
 };
 
 /** Discovery is on demand and against a local or third-party server, so it is not held open. */
@@ -33,7 +33,7 @@ const TIMEOUT_MS = 5_000;
 
 export async function discoverModels({
   baseURL,
-  apiKey,
+  credential,
 }: DiscoveryRequest): Promise<DiscoveryResult> {
   let response: Response;
 
@@ -41,7 +41,7 @@ export async function discoverModels({
     response = await fetch(modelsURL(baseURL), {
       headers: {
         accept: "application/json",
-        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        ...(credential ? { authorization: `Bearer ${credential}` } : {}),
       },
       signal: AbortSignal.timeout(TIMEOUT_MS),
       // The answer depends on what the Endpoint has loaded right now, so it is

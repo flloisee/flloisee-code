@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:mutation": "zsh scripts/mutation-check.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

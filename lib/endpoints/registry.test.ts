@@ -21,6 +21,21 @@ describe("the Registry of Endpoints", () => {
     expect(findEndpoint("ollama")?.credentialEnvVar).toBeUndefined();
   });
 
+  it("offers LM Studio at its conventional address, so a second local server works with no setup", () => {
+    const lmStudio = findEndpoint("lmstudio");
+
+    expect(lmStudio?.baseURL).toBe("http://127.0.0.1:1234/v1");
+    expect(lmStudio?.defaultModelId).toBeTruthy();
+  });
+
+  it("needs no Credential for LM Studio either, since it runs on this machine", () => {
+    // The spec names both Ollama and LM Studio as Local Endpoints usable the
+    // moment their server is running. Neither should ever ask for a key.
+    for (const local of LOCAL_ENDPOINTS) {
+      expect(local.credentialEnvVar, `${local.id} asks for a Credential`).toBeUndefined();
+    }
+  });
+
   it("reports an unknown Endpoint id rather than failing obscurely", () => {
     expect(findEndpoint("not-an-endpoint")).toBeUndefined();
   });
@@ -29,6 +44,7 @@ describe("the Registry of Endpoints", () => {
     const ids = ENDPOINTS.map((endpoint) => endpoint.id);
 
     expect(ids).toContain("ollama");
+    expect(ids).toContain("lmstudio");
     expect(ids).toContain("openrouter");
   });
 
@@ -79,9 +95,11 @@ describe("the Registry of Endpoints", () => {
 
   it("keeps Local Endpoints out of the Catalog, which covers cloud providers only", () => {
     // Every Catalog entry is a third party reached over the network. Ollama is
-    // absent from models.dev entirely, which is why it is declared by hand.
+    // absent from models.dev entirely and LM Studio is dropped there as
+    // loopback, so both are declared by hand.
     expect(CLOUD_ENDPOINTS.every((endpoint) => endpoint.baseURL.startsWith("https://"))).toBe(true);
     expect(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id)).not.toContain("ollama");
-    expect(LOCAL_ENDPOINTS.map((endpoint) => endpoint.id)).toEqual(["ollama"]);
+    expect(CLOUD_ENDPOINTS.map((endpoint) => endpoint.id)).not.toContain("lmstudio");
+    expect(LOCAL_ENDPOINTS.map((endpoint) => endpoint.id)).toEqual(["ollama", "lmstudio"]);
   });
 });

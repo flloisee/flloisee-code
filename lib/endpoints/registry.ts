@@ -3,8 +3,16 @@ import type { Endpoint, LocalEndpoint } from "./types";
 
 /**
  * Local Endpoints are declared by hand rather than drawn from the Catalog:
- * the Catalog covers cloud providers and has no entry for Ollama, yet Ollama
- * needs no Credential and is the fastest path to a working Conversation.
+ * the Catalog covers Cloud Endpoints and reaches no local server, yet these
+ * need no Credential and are the fastest path to a working Conversation.
+ *
+ * models.dev lists LM Studio but the refresh script drops it as loopback, and
+ * is silent on Ollama entirely. Both are declared here, at the addresses their
+ * own servers listen on. LM Studio's is taken from models.dev, so the two
+ * sources agree on where it listens.
+ *
+ * The starting Model is a placeholder only: Model Discovery asks the Endpoint
+ * which Models it has loaded, and replaces this the moment it answers.
  */
 export const LOCAL_ENDPOINTS: readonly LocalEndpoint[] = [
   {
@@ -13,14 +21,21 @@ export const LOCAL_ENDPOINTS: readonly LocalEndpoint[] = [
     baseURL: "http://localhost:11434/v1",
     defaultModelId: "llama3.2",
   },
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    // LM Studio's own default port, and the address models.dev records for it.
+    baseURL: "http://127.0.0.1:1234/v1",
+    defaultModelId: "qwen/qwen3-coder-30b",
+  },
 ];
 
 /**
  * Every Endpoint the app offers: Cloud Endpoints from the Catalog, Local
  * Endpoints declared alongside it.
  *
- * One list, because choosing an Endpoint is one choice. A reader picking a
- * provider should not have to know which of the two sources it came from, and a
+ * One list, because choosing an Endpoint is one choice. A reader choosing an
+ * Endpoint should not have to know which of the two sources it came from, and a
  * Cloud Endpoint with no Credential yet stays in the list so its absence is
  * visible rather than silent.
  */

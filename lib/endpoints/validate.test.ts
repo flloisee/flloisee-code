@@ -92,6 +92,49 @@ describe("the Catalog as trusted input", () => {
     expect(complaintAbout([])).toContain("empty");
   });
 
+  it("refuses one Credential variable reaching two hosts, which would send it somewhere unchosen", () => {
+    // Two regional services behind one variable name: a reader who enters it
+    // configures both, and the value is proxied to two different companies'
+    // servers. The Catalog decides where a Credential goes, so this has to fail
+    // here rather than be discovered by watching a key cross a border.
+    const complaint = complaintAbout([
+      goodEntry,
+      {
+        ...goodEntry,
+        id: "example-cn",
+        name: "Example China",
+        baseURL: "https://api.example.cn/v1",
+      },
+    ]);
+
+    expect(complaint).toContain("EXAMPLE_API_KEY");
+    expect(complaint).toContain("example-cn");
+    expect(complaint).toMatch(/host/i);
+  });
+
+  it("names every Entry sharing a variable across hosts, so one review fixes them all", () => {
+    const complaint = complaintAbout([
+      goodEntry,
+      { ...goodEntry, id: "example-cn", name: "CN", baseURL: "https://api.example.cn/v1" },
+      { ...goodEntry, id: "example-eu", name: "EU", baseURL: "https://api.example.eu/v1" },
+    ]);
+
+    expect(complaint).toContain("example");
+    expect(complaint).toContain("example-cn");
+    expect(complaint).toContain("example-eu");
+  });
+
+  it("accepts two Entries sharing a variable at one host, since that is one Credential", () => {
+    // Two catalogue entries for the same service at the same address are the
+    // same Credential listed twice, not a value sent to two places.
+    expect(() =>
+      validateCatalog([
+        goodEntry,
+        { ...goodEntry, id: "example-plans", name: "Example Plans", baseURL: `${goodEntry.baseURL}/v1` },
+      ]),
+    ).not.toThrow();
+  });
+
   it("names every offending entry at once, so one review fixes the whole file", () => {
     const complaint = complaintAbout([
       { ...goodEntry, id: "first", baseURL: "" },

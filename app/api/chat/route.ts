@@ -9,10 +9,41 @@ import { resolveEndpoint } from "@/lib/endpoints/resolve";
 /** Generous ceiling for a long generation; streaming Responses should not be cut short. */
 export const maxDuration = 300;
 
+/**
+ * One message of the Conversation, as the interface sends it.
+ *
+ * This is checked rather than cast. `/api/chat` is public, so anything may be
+ * POSTed here, and the SDK's `convertToModelMessages` reads `parts` and `role`
+ * without checking them: an unvalidated array reaches it and throws
+ * `Cannot read properties of undefined`, which leaves the caller with an
+ * unhandled 500 that reads as our fault. A malformed message is the caller's
+ * mistake, so it gets a 400 saying so.
+ *
+ * Parts are checked only as far as the SDK reads them, which is an object
+ * naming a `type`. A part's own fields belong to the SDK's types; pinning every
+ * one here would duplicate them and go stale the moment the SDK adds a part.
+ * Each schema therefore passes unknown keys through untouched: a part's `text`
+ * is the message itself, and stripping it would empty the Conversation rather
+ * than forward it.
+ *
+ * The one cast below is on validated data, not on `unknown`: it says that a
+ * checked message satisfies the SDK's part types, which is the SDK's business
+ * and not this route's to restate. What protects the public route is the
+ * `safeParse` above, and that runs before the cast is ever reached.
+ */
+const messagePartSchema = z.looseObject({
+  type: z.string().min(1),
+});
+
+const messageSchema = z.looseObject({
+  role: z.enum(["system", "user", "assistant"]),
+  parts: z.array(messagePartSchema).min(1),
+});
+
 const chatRequestSchema = z.object({
   endpointId: z.string().min(1),
   modelId: z.string().min(1),
-  messages: z.array(z.unknown()).min(1),
+  messages: z.array(messageSchema).min(1),
 });
 
 export async function POST(request: Request) {
@@ -50,10 +81,11 @@ export async function POST(request: Request) {
 
   // Every Request is proxied: the browser never contacts an Endpoint directly,
   // so no Credential is ever inlined into a request the browser constructs.
+  // `apiKey` is the SDK's own option name, not ours; ours is `credential`.
   const provider = createOpenAICompatible({
     name: endpoint.id,
     baseURL: resolution.baseURL,
-    ...(resolution.apiKey ? { apiKey: resolution.apiKey } : {}),
+    ...(resolution.credential ? { apiKey: resolution.credential } : {}),
   });
 
   // ai@7: streamText returns synchronously and must NOT be awaited.
@@ -64,7 +96,9 @@ export async function POST(request: Request) {
   // Endpoint for a Response nobody will ever read.
   const result = streamText({
     model: provider.chatModel(modelId),
-    messages: await convertToModelMessages(messages as Parameters<typeof convertToModelMessages>[0]),
+    messages: await convertToModelMessages(
+      messages as Parameters<typeof convertToModelMessages>[0],
+    ),
     abortSignal: request.signal,
   });
 

@@ -7,7 +7,7 @@ export type ResolvedEndpoint = {
   ok: true;
   baseURL: string;
   /** Absent for a Local Endpoint, which requires no Credential. */
-  apiKey: string | undefined;
+  credential: string | undefined;
 };
 
 export type UnresolvedEndpoint = {
@@ -32,14 +32,14 @@ export function resolveEndpoint(endpoint: Endpoint, env: Environment): EndpointR
   const { credentialEnvVar } = endpoint;
 
   if (credentialEnvVar === undefined) {
-    return { ok: true, baseURL: endpoint.baseURL, apiKey: undefined };
+    return { ok: true, baseURL: endpoint.baseURL, credential: undefined };
   }
 
-  const apiKey = env[credentialEnvVar];
+  const credential = env[credentialEnvVar];
 
-  if (!apiKey) {
+  if (!credential) {
     return { ok: false, missingEnvVar: credentialEnvVar };
   }
 
-  return { ok: true, baseURL: endpoint.baseURL, apiKey };
+  return { ok: true, baseURL: endpoint.baseURL, credential };
 }

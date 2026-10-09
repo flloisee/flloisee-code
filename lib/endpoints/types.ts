@@ -8,7 +8,7 @@
  */
 
 /**
- * A Local Endpoint — an AI backend served from the machine running the app.
+ * A Local Endpoint — an AI Endpoint served from the machine running the app.
  *
  * It requires no Credential, so it is usable the moment its server is running.
  */
@@ -35,7 +35,7 @@ export type CatalogEntry = {
   baseURL: string;
   /** The environment variable holding this Endpoint's Credential. */
   credentialEnvVar: string;
-  /** Where the provider documents itself, so a reader need not read source. */
+  /** Where the Endpoint documents itself, so a reader need not read source. */
   doc: string;
   /** What at least one of this Endpoint's Models can do. */
   capabilities: readonly string[];

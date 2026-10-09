@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { readRouteError, readRouteJSON } from "@/lib/http/route-answer";
+
 /**
  * Asking the discovery Route Handler from the interface.
  *
@@ -53,7 +55,7 @@ export function readDiscoveryAnswer({
   }
 
   if (status !== 200) {
-    const message = readError(body);
+    const message = readRouteError(body);
     // The route named the environment variable to set, or the unknown Endpoint.
     // Its wording is deliberate, so it is shown rather than replaced.
     return { status: "refused", message: message ?? "The app refused to ask that Endpoint." };
@@ -85,22 +87,5 @@ export async function requestModels(endpointId: string): Promise<DiscoveryAnswer
     return readDiscoveryAnswer({ status: 0, body: null });
   }
 
-  return readDiscoveryAnswer({ status: response.status, body: await readBody(response) });
-}
-
-async function readBody(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    // A proxy or an error page answering in place of the route is not something
-    // to render as an Endpoint's Model list.
-    return null;
-  }
-}
-
-function readError(body: unknown): string | undefined {
-  if (typeof body !== "object" || body === null) return undefined;
-
-  const error = (body as Record<string, unknown>).error;
-  return typeof error === "string" && error.length > 0 ? error : undefined;
+  return readDiscoveryAnswer({ status: response.status, body: await readRouteJSON(response) });
 }
