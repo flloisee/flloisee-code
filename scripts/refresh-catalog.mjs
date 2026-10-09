@@ -90,6 +90,49 @@ const HAND_ADDED = [
 ];
 
 /**
+ * Credential variables this project owns rather than inherits.
+ *
+ * models.dev lists each vendor's international and Chinese services under one
+ * environment variable name while addressing them at different hosts. Those are
+ * separate accounts with separate Credentials, so one name reaching two hosts
+ * would Configure four Endpoints at once and proxy the value to two different
+ * companies' servers (one a `.cn` host) through Key Entry. The Catalog exists
+ * so a Credential goes only where a reviewer chose to send it, so each of these
+ * is renamed to name the one service it belongs to.
+ *
+ * Entries sharing a variable AND a host (llmgateway, opencode) are the same
+ * Credential listed twice and are deliberately absent here.
+ *
+ * validateCatalog() fails the module load if any variable ever spans two hosts
+ * again, so a re-snapshot that grows a new regional pair is caught rather than
+ * shipped.
+ */
+const CREDENTIAL_VAR_RENAMES = {
+  alibaba: "DASHSCOPE_API_KEY",
+  "alibaba-cn": "DASHSCOPE_CN_API_KEY",
+  "alibaba-coding-plan": "ALIBABA_CODING_PLAN_API_KEY",
+  "alibaba-coding-plan-cn": "ALIBABA_CODING_PLAN_CN_API_KEY",
+  "alibaba-token-plan": "ALIBABA_TOKEN_PLAN_API_KEY",
+  "alibaba-token-plan-cn": "ALIBABA_TOKEN_PLAN_CN_API_KEY",
+  "kimi-code-plan-global": "KIMI_API_KEY",
+  "kimi-code-plan-cn": "KIMI_CN_API_KEY",
+  moonshotai: "MOONSHOT_API_KEY",
+  "moonshotai-cn": "MOONSHOT_CN_API_KEY",
+  stepfun: "STEPFUN_API_KEY",
+  "stepfun-ai": "STEPFUN_AI_API_KEY",
+  "stepfun-step-plan": "STEPFUN_STEP_PLAN_API_KEY",
+  "stepfun-ai-step-plan": "STEPFUN_AI_STEP_PLAN_API_KEY",
+  xiaomi: "XIAOMI_API_KEY",
+  "xiaomi-token-plan-cn": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+  "xiaomi-token-plan-ams": "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+  "xiaomi-token-plan-sgp": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+  zai: "ZAI_API_KEY",
+  "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
+  zhipuai: "ZHIPUAI_API_KEY",
+  "zhipuai-coding-plan": "ZHIPUAI_CODING_PLAN_API_KEY",
+};
+
+/**
  * Models kept per provider. A full listing runs to several megabytes, and Model
  * Discovery asks an Endpoint for its live Models anyway, so this is a
  * representative sample rather than the whole catalogue.
@@ -167,7 +210,7 @@ for (const provider of Object.values(raw)) {
     id: provider.id,
     name: provider.name,
     baseURL: provider.api,
-    credentialEnvVar: provider.env[0],
+    credentialEnvVar: CREDENTIAL_VAR_RENAMES[provider.id] ?? provider.env[0],
     doc: provider.doc,
     capabilities: [
       textModels.some((model) => model.reasoning === true) && "reasoning",
@@ -230,10 +273,13 @@ const summary = [
   `- Each provider keeps its ${KNOWN_MODELS_PER_PROVIDER} newest text-output Models. The full listing is`,
   "  several megabytes, and Model Discovery asks an Endpoint for its live Models anyway.",
   "",
-  "Several providers share one environment variable name — Z.AI and Zhipu AI both",
-  "read `ZHIPU_API_KEY`, for instance — while pointing at different addresses. That",
-  "is upstream's own doing and is left as reported: the variable holds the Credential,",
-  "and the Endpoint decides where it is sent.",
+  "The Credential variable names are corrected by this script rather than copied",
+  "from models.dev: upstream lists each vendor's international and Chinese",
+  "services under one name at two different addresses, and those are separate",
+  "accounts holding separate Credentials. One name reaching two hosts would Configure",
+  "every Entry sharing it and send the value to each of those servers, which is not",
+  "an address any reader chose. validateCatalog() fails the load if a variable ever",
+  "spans two hosts again.",
 ].join("\n");
 
 const output = `/**

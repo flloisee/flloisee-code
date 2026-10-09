@@ -12,6 +12,24 @@
  * review the diff before committing it. validateCatalog() checks the result
  * before anything is allowed to send a Credential anywhere.
  *
+ * The Credential variable names below are HAND-MAINTAINED from here on, not the
+ * snapshot's. Regenerating from models.dev would reintroduce nine variables
+ * that each reach more than one host — ZHIPU_API_KEY, MOONSHOT_API_KEY,
+ * DASHSCOPE_API_KEY, KIMI_API_KEY, STEPFUN_API_KEY, XIAOMI_API_KEY and the
+ * Alibabas — because models.dev conflates each vendor's international and
+ * Chinese services under one name while listing them at genuinely different
+ * addresses. Those are separate accounts holding separate Credentials: entering
+ * one of those variables through the interface would Configure four Endpoints
+ * and proxy the value to two companies' servers, one of them a .cn host. That
+ * is precisely the outcome the Catalog is reviewed to prevent, so the variable
+ * name is the part of this file this project owns rather than inherits.
+ *
+ * scripts/refresh-catalog.mjs carries the same renames so a re-snapshot lands
+ * here directly, and validateCatalog() fails the load if any variable ever
+ * spans two hosts again. Entries sharing one variable AND one host —
+ * llmgateway with llmgateway-providers, opencode with opencode-go — are the
+ * same Credential listed twice, and are left shared.
+ *
  * What this snapshot covers, and what it leaves out:
  *
  * Every Cloud Endpoint here is addressed in the OpenAI chat format, because one
@@ -31,11 +49,6 @@
  *   reviewer can tell a hand-written address from a snapshotted one at a glance.
  * - Each provider keeps its 5 newest text-output Models. The full listing is
  *   several megabytes, and Model Discovery asks an Endpoint for its live Models anyway.
- *
- * Several providers share one environment variable name — Z.AI and Zhipu AI both
- * read `ZHIPU_API_KEY`, for instance — while pointing at different addresses. That
- * is upstream's own doing and is left as reported: the variable holds the Credential,
- * and the Endpoint decides where it is sent.
  */
 
 import type { CatalogEntry } from "./types";
@@ -228,7 +241,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "alibaba-cn",
     name: "Alibaba (China)",
     baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    credentialEnvVar: "DASHSCOPE_API_KEY",
+    credentialEnvVar: "DASHSCOPE_CN_API_KEY",
     doc: "https://www.alibabacloud.com/help/en/model-studio/models",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -258,7 +271,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "alibaba-coding-plan-cn",
     name: "Alibaba Coding Plan (China)",
     baseURL: "https://coding.dashscope.aliyuncs.com/v1",
-    credentialEnvVar: "ALIBABA_CODING_PLAN_API_KEY",
+    credentialEnvVar: "ALIBABA_CODING_PLAN_CN_API_KEY",
     doc: "https://help.aliyun.com/zh/model-studio/coding-plan",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -288,7 +301,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "alibaba-token-plan-cn",
     name: "Alibaba Token Plan (China)",
     baseURL: "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-    credentialEnvVar: "ALIBABA_TOKEN_PLAN_API_KEY",
+    credentialEnvVar: "ALIBABA_TOKEN_PLAN_CN_API_KEY",
     doc: "https://www.alibabacloud.com/help/zh/model-studio/token-plan-overview",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -1217,7 +1230,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "kimi-code-plan-cn",
     name: "Kimi For Coding (kimi.com)",
     baseURL: "https://api.kimi.com/coding/v1",
-    credentialEnvVar: "KIMI_API_KEY",
+    credentialEnvVar: "KIMI_CN_API_KEY",
     doc: "https://www.kimi.com/code/docs/en/kimi-code/models.html",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -1520,7 +1533,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "moonshotai-cn",
     name: "Moonshot AI (China)",
     baseURL: "https://api.moonshot.cn/v1",
-    credentialEnvVar: "MOONSHOT_API_KEY",
+    credentialEnvVar: "MOONSHOT_CN_API_KEY",
     doc: "https://platform.moonshot.cn/docs/api/chat",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2170,7 +2183,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "stepfun-ai",
     name: "StepFun (Global)",
     baseURL: "https://api.stepfun.ai/v1",
-    credentialEnvVar: "STEPFUN_API_KEY",
+    credentialEnvVar: "STEPFUN_AI_API_KEY",
     doc: "https://platform.stepfun.ai/docs/en/overview/concept",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2185,7 +2198,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "stepfun-step-plan",
     name: "StepFun Step Plan (China)",
     baseURL: "https://api.stepfun.com/step_plan/v1",
-    credentialEnvVar: "STEPFUN_API_KEY",
+    credentialEnvVar: "STEPFUN_STEP_PLAN_API_KEY",
     doc: "https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2200,7 +2213,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "stepfun-ai-step-plan",
     name: "StepFun Step Plan (Global)",
     baseURL: "https://api.stepfun.ai/step_plan/v1",
-    credentialEnvVar: "STEPFUN_API_KEY",
+    credentialEnvVar: "STEPFUN_AI_STEP_PLAN_API_KEY",
     doc: "https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2573,7 +2586,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "xiaomi-token-plan-cn",
     name: "Xiaomi Token Plan (China)",
     baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
-    credentialEnvVar: "XIAOMI_API_KEY",
+    credentialEnvVar: "XIAOMI_TOKEN_PLAN_CN_API_KEY",
     doc: "https://platform.xiaomimimo.com/#/docs",
     capabilities: ["reasoning", "toolCalling", "imageInput"],
     knownModels: [
@@ -2588,7 +2601,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "xiaomi-token-plan-ams",
     name: "Xiaomi Token Plan (Europe)",
     baseURL: "https://token-plan-ams.xiaomimimo.com/v1",
-    credentialEnvVar: "XIAOMI_API_KEY",
+    credentialEnvVar: "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
     doc: "https://platform.xiaomimimo.com/#/docs",
     capabilities: ["reasoning", "toolCalling", "imageInput"],
     knownModels: [
@@ -2603,7 +2616,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "xiaomi-token-plan-sgp",
     name: "Xiaomi Token Plan (Singapore)",
     baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
-    credentialEnvVar: "XIAOMI_API_KEY",
+    credentialEnvVar: "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
     doc: "https://platform.xiaomimimo.com/#/docs",
     capabilities: ["reasoning", "toolCalling", "imageInput"],
     knownModels: [
@@ -2633,7 +2646,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "zai",
     name: "Z.AI",
     baseURL: "https://api.z.ai/api/paas/v4",
-    credentialEnvVar: "ZHIPU_API_KEY",
+    credentialEnvVar: "ZAI_API_KEY",
     doc: "https://docs.z.ai/guides/overview/pricing",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2648,7 +2661,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "zai-coding-plan",
     name: "Z.AI Coding Plan",
     baseURL: "https://api.z.ai/api/coding/paas/v4",
-    credentialEnvVar: "ZHIPU_API_KEY",
+    credentialEnvVar: "ZAI_CODING_PLAN_API_KEY",
     doc: "https://docs.z.ai/devpack/overview",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2700,7 +2713,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "zhipuai",
     name: "Zhipu AI",
     baseURL: "https://open.bigmodel.cn/api/paas/v4",
-    credentialEnvVar: "ZHIPU_API_KEY",
+    credentialEnvVar: "ZHIPUAI_API_KEY",
     doc: "https://docs.z.ai/guides/overview/pricing",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [
@@ -2715,7 +2728,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     id: "zhipuai-coding-plan",
     name: "Zhipu AI Coding Plan",
     baseURL: "https://open.bigmodel.cn/api/coding/paas/v4",
-    credentialEnvVar: "ZHIPU_API_KEY",
+    credentialEnvVar: "ZHIPUAI_CODING_PLAN_API_KEY",
     doc: "https://docs.bigmodel.cn/cn/coding-plan/overview",
     capabilities: ["reasoning", "toolCalling", "imageInput", "structuredOutput"],
     knownModels: [

@@ -81,6 +81,8 @@ export function validateCatalog(entries: readonly CatalogEntry[]): readonly Cata
     }
   });
 
+  faults.push(...faultsForSharedCredentialVars(entries));
+
   if (faults.length > 0) {
     throw new Error(
       `The Catalog is malformed — it decides which address a Credential is sent to, ` +
@@ -89,6 +91,67 @@ export function validateCatalog(entries: readonly CatalogEntry[]): readonly Cata
   }
 
   return entries;
+}
+
+/**
+ * One variable name reaching more than one host.
+ *
+ * The Catalog decides where a Credential is sent, and this is the one way the
+ * decision escapes the review of the individual entry. One variable read by two
+ * Endpoints on two hosts means one value entered through the interface is
+ * Configured into two Endpoints and proxied to two different companies'
+ * servers — so a reader who picked one Endpoint has their Credential sent to
+ * another they never chose. models.dev reports this for the regional pairs that
+ * each publish their own account (Z.AI against Zhipu AI, Moonshot against
+ * Moonshot China, and so on), conflating services that have separate accounts
+ * behind a shared name. See the header of catalog.ts for the correction.
+ *
+ * Two Entries at the SAME host are not this fault: that is one service and one
+ * Credential listed under two names, and sharing is honest.
+ *
+ * Checked at module load with the rest of the Catalog, because a Credential
+ * fanning out is worse than a malformed entry — it looks like it works.
+ */
+function faultsForSharedCredentialVars(entries: readonly CatalogEntry[]): string[] {
+  const hostsByVar = new Map<string, Map<string, CatalogEntry[]>>();
+
+  for (const entry of entries) {
+    const name = describe(entry?.credentialEnvVar);
+    const host = hostOf(entry?.baseURL);
+    if (name === undefined || host === undefined) continue;
+
+    const byHost = hostsByVar.get(name) ?? new Map<string, CatalogEntry[]>();
+    byHost.set(host, [...(byHost.get(host) ?? []), entry]);
+    hostsByVar.set(name, byHost);
+  }
+
+  const faults: string[] = [];
+
+  for (const [name, byHost] of hostsByVar) {
+    if (byHost.size < 2) continue;
+
+    const perHost = [...byHost].map(([host, at]) => `${host} (${at.map((e) => e.id).join(", ")})`);
+    faults.push(
+      `${name}: one Credential variable reaches ${byHost.size} hosts — ${perHost.join("; ")}. ` +
+        `Entering it would configure every one of those Endpoints and send the value to each of ` +
+        `those servers, which is not an address any reader chose. Give each service its own ` +
+        `variable name, or drop the entries that do not need one.`,
+    );
+  }
+
+  return faults;
+}
+
+/** An address's host, or undefined when it is not an address at all. */
+function hostOf(baseURL: unknown): string | undefined {
+  const text = describe(baseURL);
+  if (text === undefined) return undefined;
+
+  try {
+    return new URL(text).host;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
