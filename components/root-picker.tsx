@@ -579,12 +579,36 @@ function FolderChooser({
       </h2>
 
       <p className="mt-2 text-sm text-ink-2">
-        The choosing is done by the folder dialog your own computer provides. It can tell this app
-        only what the folder is called — no browser folder dialog can give a path, because Chrome
-        removed <span className="font-mono">File.path</span> in 2017 and nothing has put it back —
-        so the app looks for folders with that name inside your home folder and shows you where
-        they really are.
+        Your computer's folder dialog picks the folder. It gives this app only the name, not the
+        path. So the app looks for folders with that name in your home folder and shows you the
+        real path.
       </p>
+
+      {/* The reason the paragraph above has to end that way, behind a summary
+          rather than in the paragraph itself. The reader is here to pick a
+          folder, and the history of `File.path` is not what they came for; a
+          reader who does want it should not have to scroll past it to reach the
+          buttons. It is folded because it is context, not because it is
+          unimportant — a reader who cannot work out why the app is asking them
+          to pick the right folder again is being asked to trust it blindly. */}
+      <details className="mt-1">
+        <summary className="cursor-pointer text-sm text-muted hover:text-ink">
+          Read more about why the app asks for a folder this way
+        </summary>
+        <div className="mt-2 text-sm text-ink-2">
+          <p>
+            No browser folder dialog can give a path. Chrome removed{" "}
+            <span className="font-mono">File.path</span> in 2017 as a privacy fix, and nothing has
+            put it back.
+          </p>
+          <p className="mt-2">
+            So the app sends the name to the server, which looks for it inside your home folder
+            and sends back the path or paths it found. The app shows you those paths, and only a
+            path you have seen is ever saved. That way two folders with the same name can never be
+            confused for each other without you noticing.
+          </p>
+        </div>
+      </details>
 
       {/* One match, and its whole path. The reader is confirming a location, so
           the location is what they are shown: not the name they chose, and not
