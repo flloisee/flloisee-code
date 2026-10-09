@@ -203,6 +203,23 @@ the Model knows the answer is partial rather than complete.
 Ripgrep was considered and rejected for v2: shelling out to a binary the app does not control
 means two code paths, and behaviour that differs by machine.
 
+### Skipping `.env*` narrows discovery, and does not protect anything
+
+The walk skips `.env*` while `list_files` does not, and that inconsistency is deliberate and needs
+saying out loud, because the obvious wrong conclusion is that the skip is a security control.
+
+It is not. Access is decided by the Root and by nothing else: a `.env.local` inside a folder the
+reader deliberately chose is inside the boundary, and a Model that guesses the path can read it.
+What the skip changes is whether the Model can *find* it by searching. Grepping a project for
+`.env` is the ordinary way a secret would leave, so the walk declines to be the thing that turns
+it up, while a directory listing is expected to describe the folder honestly — a listing that
+quietly omitted files would be lying about what the reader pointed at.
+
+The line this draws is: the reader's choice governs what may be **read**, and the Tools are
+narrow about what they volunteer. If that separation is ever collapsed — most likely by making
+`list_files` skip as well, for tidiness — the skip stops being about discovery and starts looking
+like protection it does not provide.
+
 ### A named file is inlined as text, not attached as a file part
 
 An Attachment's contents are placed in the reader's message as a delimited block of text.
@@ -334,8 +351,11 @@ one question: would this test pass whether or not the check were there.
 - Grants for directories named by a pattern
 - Re-indexing or invalidation for `@`, which is why there is no index
 - Following a symlink out of the Root, ever, including after a Grant for its target
-- Files larger than the read cap, which are refused with a reason rather than truncated into an
-  answer
+- Reading a whole file in one call when it runs past the per-call line cap. Two ceilings are at
+  work and they refuse differently, which this spec originally stated as one and contradicted:
+  a file longer than the per-call cap is **cut with a pointer** to where the rest of it is, and
+  read again with an offset; a file larger than the byte cap is **refused**, because there is no
+  second call that gets through it
 - Sharing a Root or a Saved Conversation with another machine or person
 - A read-only browsing Endpoint, and any hosting of this app
 
