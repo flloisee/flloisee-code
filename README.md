@@ -6,7 +6,8 @@ on your own machine, or a hosted service — without the app caring which.
 Pick an **Endpoint**, pick a **Model**, and talk to it. Switch either one mid-conversation
 without losing what you have said so far.
 
-**Status: v1.** All nine tracked tickets are resolved. The spec lives at
+**A working app, and still being built on.** Everything below describes what it does today;
+improvements keep landing on top of it. The spec it grew out of lives at
 `.scratch/multi-endpoint-chatbot/spec.md`. The domain vocabulary used below is defined in
 [`GLOSSARY.md`](./GLOSSARY.md), which names this feature **flloisee code** — the name
 used throughout the codebase.
@@ -342,45 +343,228 @@ Turns are left as they were; only the message you just sent gains the blocks.
 
 ## Getting started
 
-Requires Node 20.9+ (Next's engine requirement) and [pnpm](https://pnpm.io) (pinned to 12.3.4
-via `packageManager`).
+You need Node, pnpm, and — if you want to talk to something on your own machine — Ollama or
+LM Studio. No account, no Credential, and nothing to compile.
+
+### What you need
+
+| Requirement | Version | Notes |
+| --- | --- | --- |
+| [Node.js](https://nodejs.org) | 20.9 or newer | Next's engine requirement. Check with `node -v`. |
+| [pnpm](https://pnpm.io) | 12.3.4 | Pinned in `package.json`. Corepack installs exactly that version. |
+| [Git](https://git-scm.com) | anything current | To clone the repo. |
+| Something to talk to | optional | Ollama or LM Studio. A Cloud Endpoint needs an account and a Credential. |
+
+Expect `pnpm install` to take a couple of minutes and a few GB the first time. **There is
+nothing to compile** — `pnpm-workspace.yaml` switches off the two packages that would build
+(`sharp`, `unrs-resolver`), so you do not need Xcode's command line tools or Visual Studio
+Build Tools on either platform.
+
+Three ports, all on your own machine:
+
+| Port | What |
+| --- | --- |
+| 3000 | This app. |
+| 11434 | Ollama. |
+| 1234 | LM Studio's local server. |
+
+### macOS
+
+**1. Install Node.** With [nvm](https://github.com/nvm-sh/nvm):
 
 ```bash
+nvm install --lts
+nvm use --lts
+node -v          # 20.9.0 or higher
+```
+
+The [nodejs.org installer](https://nodejs.org/en/download) works just as well — pick the LTS
+build.
+
+**2. Get the pinned pnpm.** Corepack ships with Node, and `packageManager` in `package.json`
+tells it which version to fetch:
+
+```bash
+corepack enable
+pnpm -v          # 12.3.4
+```
+
+If your Node build has no Corepack, `npm install -g pnpm@12.3.4` installs the same thing by
+hand.
+
+**3. Clone and install.**
+
+```bash
+git clone https://github.com/flloisee/flloisee-code.git
+cd flloisee-code
 pnpm install
+```
+
+**4. Start it.**
+
+```bash
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and you land straight in the
 Conversation.
 
-**Build against a Local Endpoint first.** Start Ollama or LM Studio, and you can chat with no
-setup whatsoever. Cloud Endpoints can be verified afterwards — enter their Credentials
-through the interface when you want them.
+That is the whole setup on macOS. One thing runs before `pnpm dev`: a sweep that
+deletes `._*` files, the AppleDouble resource forks macOS creates on external volumes and
+network shares, which Vitest would otherwise read as broken test files. It is a `find` in a
+`predev` script and it has nothing to do with the app.
+
+### Windows
+
+**1. Install Git.** [Git for Windows](https://git-scm.com/download/win), or:
+
+```powershell
+winget install --id Git.Git -e
+```
+
+Without it there is no `git clone`.
+
+**2. Install Node 20.9 or newer**, from [nodejs.org](https://nodejs.org/en/download) (LTS) or:
+
+```powershell
+winget install --id OpenJS.NodeJS.LTS -e
+```
+
+Open a **new** PowerShell window afterwards so `PATH` picks up the change, and confirm with
+`node -v`.
+
+**3. Get the pinned pnpm.**
+
+```powershell
+corepack enable
+pnpm -v          # 12.3.4
+```
+
+`corepack enable` writes shims alongside `node.exe`, which lives under `C:\Program Files` —
+so run that single line from PowerShell opened as Administrator. To avoid that, install the
+pinned version by hand with `npm install -g pnpm@12.3.4`.
+
+**4. Clone and install.**
+
+```powershell
+git clone https://github.com/flloisee/flloisee-code.git
+cd flloisee-code
+pnpm install
+```
+
+**5. Start it — this is the one step that differs.**
+
+```powershell
+pnpm exec next dev
+```
+
+Use `pnpm exec next dev`, **not** `pnpm dev`. Both start the same server, but `pnpm dev` runs
+the `predev` sweep described above first, and Windows' `find` is a different built-in command
+with different arguments — it fails, and a failing `predev` stops the script before Next ever
+starts. `pnpm exec` skips the pre- and post-scripts and goes straight to Next, which is the
+same server `pnpm dev` would have reached anyway.
+
+Everything else is identical, and the app itself runs on Windows without complaint. Open
+[http://localhost:3000](http://localhost:3000) when it is up.
+
+**Three more things that differ on Windows.**
+
+- **Settings → Hardware reports your CPU and RAM and offers no fits.** Deliberate, and not a
+  bug on your machine: `wmic` reports a card's memory as a 32-bit integer that truncates at
+  4 GB, so a 24 GB card reads as 4 and every Model would be marked too large. The full
+  reasoning is in [Platform coverage](#platform-coverage).
+- **`pnpm test:mutation` needs `zsh`** — run it from Git Bash or WSL. It is a security gate on
+  the code, not part of running the app, so you can skip it entirely on Windows.
+- **Choosing a Root uses the browser's own folder dialog**, which Chromium, Edge, Firefox and
+  Safari all have. There is nothing extra to install.
+
+### Point it at a Model
+
+**Build against a Local Endpoint first.** Ollama and LM Studio need no account, no signup and
+no Credential, so you can be chatting minutes after the install. Cloud Endpoints can be
+verified afterwards.
+
+**Ollama — the shortest path.** [Install it](https://ollama.com), then pull a Model, because
+a fresh install ships with none:
+
+```bash
+ollama pull llama3.2
+```
+
+Leave Ollama running, pick **Ollama** in the Endpoint picker, and send a message. `llama3.2`
+is the starting Model the Registry declares for it, and Model Discovery asks Ollama what it
+has and offers the rest as a list. If the picker shows Ollama marked unconfigured, nothing is
+answering on port 11434 — start it and re-run Discovery.
+
+**LM Studio.** [Download it](https://lmstudio.ai), load `qwen/qwen3-coder-30b`, and start its
+local server (port 1234 by default). Then pick **LM Studio** in the picker.
+
+**A Cloud Endpoint.** Open Settings → **Key Entry**, choose one of the offered services, paste
+the Credential, and save. It is written to `.env.local` and applied immediately — the
+environment is reloaded in place, so there is no restart to wait for. Open Key Entry again to
+confirm it is live; stored values are never shown back to you, only which names are present.
+
+If Discovery returns nothing for a given Endpoint — or you already know the identifier — a
+free-text field takes a Model name directly. See [Model Discovery](#model-discovery) for how
+selection is remembered per Endpoint.
+
+### Check the install
+
+```bash
+pnpm lint
+pnpm dev      # start once, then stop it — see below
+pnpm typecheck
+pnpm test
+```
+
+The `pnpm dev` in the middle is there for `pnpm typecheck`, not for the app. Next generates
+its route types as it starts, and `next-env.d.ts` is gitignored rather than committed, so in
+a fresh checkout `typecheck` has nothing to read until Next has run at least once. Stop it
+with `Ctrl-C` and the rest is ordinary.
+
+### If something goes wrong
+
+| Symptom | What it is | What to do |
+| --- | --- | --- |
+| `pnpm dev` stops on a `find` error (Windows) | The `predev` sweep, meeting Windows' own `find` | `pnpm exec next dev` |
+| `Port 3000 is already in use` | Something else holds it | `pnpm exec next dev -p 3001` |
+| An Endpoint is marked unconfigured | No server answering there, or no Credential live | Start Ollama/LM Studio, or re-enter the Credential in Key Entry |
+| Ollama is listed but has no Models | A fresh Ollama ships with none | `ollama pull llama3.2` |
+| `pnpm typecheck` cannot find `.next/types/routes.d.ts` | Those types are generated, not committed | Run `pnpm dev` once first |
+| `pnpm install` reports an ignored build script | `sharp` and `unrs-resolver`, switched off on purpose | Nothing — that is the intended state |
+
+### Files it writes on your machine
+
+| File | Holds | Written by |
+| --- | --- | --- |
+| `.env.local` | Credentials. Never displayed back to you, never committed. | Key Entry |
+| `.reading-root.json` | The Root and the Grants beyond it — this machine's own folder layout. | The Reading Root route |
+| `.endpoints.json` | Endpoints you declared: an address and a name, never a Credential. | Endpoints of your own |
+
+All three are gitignored, and all three are written only under `pnpm dev`. The routes behind
+them refuse to run in any other build, so **run the app with `pnpm dev`** — that is where
+Credentials, the Root and your declared Endpoints can be written at all.
 
 ### Scripts
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | Development server. |
-| `pnpm build` | Production build. |
-| `pnpm start` | Serve the production build. |
+| `pnpm dev` | **How you run the app.** Development server on port 3000. On Windows use `pnpm exec next dev` — see above. |
+| `pnpm build` | Compiles a production build. Not how you run the app, and it carries the same Windows caveat. |
 | `pnpm test` | Vitest suite — 1155 tests across 82 files. |
-| `pnpm typecheck` | `tsc --noEmit`. Needs Next's generated route types, so run `pnpm dev` or `pnpm build` first in a fresh checkout. |
+| `pnpm typecheck` | `tsc --noEmit`. Needs Next's generated route types, so run `pnpm dev` once first in a fresh checkout. |
 | `pnpm lint` | ESLint. |
-| `pnpm test:mutation` | Mutation check on the security-critical paths. |
-
-`.env.local` is gitignored. Credentials entered through the interface are written there and
-are never committed. So is `.reading-root.json`, which records the folder the Model may read:
-it holds this machine's own directory layout, which is nothing to do with the app.
+| `pnpm test:mutation` | Mutation check on the security-critical paths. Needs `zsh`. |
 
 ## Stack
 
 Next.js 16.4 (App Router, Cache Components, Turbopack) · React 19.3 · TypeScript · Tailwind
 CSS v4 · Vercel AI SDK v7 (`@ai-sdk/openai-compatible`) · Zod v4 · Vitest 5 · pnpm 12.3.4.
 
-## Out of scope for v1
+## Not built yet
 
-Named here so their absence reads as a decision rather than a gap:
+Named here so their absence reads as a decision rather than a gap — each is the next thing
+worth doing, and none of them is a hole:
 
 - Anthropic and any Endpoint not speaking the OpenAI-compatible format
 - Sharing Saved Conversations between machines or people — they live in the
