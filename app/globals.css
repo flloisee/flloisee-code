@@ -53,6 +53,23 @@
   --dur-base:   var(--dur-base);
 }
 
+/* `hover-hover` — the pointer can hover, so a hover state is one it can leave.
+ *
+ * Written out rather than reached for as a bare `hover:` because the two failure
+ * modes of a hover are opposites, and each needs the opposite answer. On a button
+ * the hover is a tint laid over something already there, so a hover that never
+ * leaves is untidy — which is why every `.hm-btn:hover` rule is behind the query
+ * already. On a row of controls that is *hidden* until hovered, the same query is
+ * the whole difference between a control and an invisible one: a touch screen has
+ * no hover to wait for, and a `hover:` that never fires there leaves the reader
+ * with nothing to press and nothing to tell them why it is not there.
+ *
+ * So it is the resting state that is always drawn and this that takes it away:
+ * `opacity-100 hover-hover:opacity-0 hover-hover:group-hover:opacity-100`, which
+ * stacks with `group-hover` and `focus-within` as written.
+ */
+@custom-variant hover-hover (@media (hover: hover));
+
 /* -----------------------------------------------------------------------
  * Base
  * --------------------------------------------------------------------- */
@@ -460,10 +477,15 @@ textarea.hm-field,
   .hm-mirror { display: none; }
 }
 
-/* A native select styled as a field. Left native on purpose — the picker is
- * the one control here that has to survive a keyboard and a screen reader,
- * and a custom listbox would be a worse version of what the platform
- * already does correctly. */
+/* A native select styled as a field. Left native on purpose — the Model picker is
+ * the one control here that has to survive a keyboard and a screen reader, and a
+ * custom listbox would be a worse version of what the platform already does
+ * correctly.
+ *
+ * The Endpoint picker is no longer one of these: 187 names is past what a platform
+ * menu can be navigated through, so that control became a searchable table and
+ * styles itself. This rule is here for the Model alone, which is short enough that
+ * the platform's own menu is the right answer. */
 select.hm-field {
   appearance: none;
   padding-right: var(--space-lg);
@@ -504,7 +526,7 @@ select.hm-field {
 /* A control whose whole meaning is a glyph.
  *
  * Square rather than padded out to a text width. The glyph's own size is not
- * set here — `STROKE` in `glyph.ts` carries it, so that a drawing is the same
+ * set here — `STROKE` in `glyph.tsx` carries it, so that a drawing is the same
  * size beside a word as it is alone in one of these.
  */
 .hm-btn--icon {

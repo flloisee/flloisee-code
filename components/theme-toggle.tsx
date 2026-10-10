@@ -115,7 +115,7 @@ const DESCRIBES: Record<Theme, { action: string; state: string }> = {
  * of a millimetre of horn, which is the part that reads as "crisp" at that
  * size and the part nobody can fix afterwards.
  *
- * The first of those reasons is now answered by `glyph.ts`, which holds it for
+ * The first of those reasons is now answered by `glyph.tsx`, which holds it for
  * every drawing in the app; this is the reasoning it is answering.
  *
  * Both share one stroke weight, one cap style and a 16-unit box, so they are a

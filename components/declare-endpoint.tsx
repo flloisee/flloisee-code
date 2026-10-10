@@ -32,8 +32,12 @@ import type { EndpointStatus } from "@/lib/endpoints/status";
 export type DeclareEndpointProps = {
   /**
    * The Endpoints the reader has already declared, so each can be offered for
-   * removal here rather than in the picker — where a `<select>` has no room for
-   * a control beside it.
+   * removal here rather than in the picker.
+   *
+   * The picker's table now has room for a control on each row, and still does not
+   * put one there: choosing an Endpoint is the thing that control is for, and a
+   * button that deletes a file entry and a stored Credential sitting in a list
+   * someone is scrolling through is a control in the wrong place.
    */
   declared: readonly EndpointStatus[];
   /**
@@ -329,8 +333,7 @@ function DeclareEndpointDialog({
 /**
  * The Endpoints the reader has added, and the one way to take them off.
  *
- * Here rather than in the picker because a `<select>` has nowhere to put a
- * control per row, and because removing an Endpoint is a rarer and more
+ * Here rather than in the picker because removing an Endpoint is a rarer and more
  * deliberate act than choosing one — it deletes a file entry and a stored
  * Credential, so it is not the sort of thing to hide behind a dropdown.
  *

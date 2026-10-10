@@ -128,6 +128,12 @@ async function typeAndSubmit(dialog: HTMLElement, credential: string) {
   fireEvent.click(within(dialog).getByRole("button", { name: /Save|Store/i }));
 }
 
+/** The picker's table, opened the way the reader opens it. */
+async function openPickerTable() {
+  fireEvent.click(await screen.findByRole("button", { name: /Endpoint/ }));
+  return screen.findByRole("listbox", { name: "Endpoints" });
+}
+
 /**
  * The picker's own line about the chosen Endpoint.
  *
@@ -137,6 +143,18 @@ async function typeAndSubmit(dialog: HTMLElement, credential: string) {
 function pickerStatus(): string {
   const [picker] = screen.getAllByRole("status").filter((element) => !element.closest("[role=dialog]"));
   return picker.textContent ?? "";
+}
+
+/**
+ * What one row of the table says about an Endpoint.
+ *
+ * The Configured state used to be a suffix on the name — `Groq — no Credential` —
+ * and is now its own column, because it is the thing a reader is comparing across
+ * rows. These claims are about the state, so they read the row rather than a
+ * particular phrasing of it.
+ */
+function says(id: string): string {
+  return document.querySelector(`[data-endpoint="${id}"]`)?.textContent ?? "";
 }
 
 describe("entering a Credential", () => {
@@ -171,14 +189,13 @@ describe("entering a Credential", () => {
     await waitFor(() => expect(pickerStatus()).toContain("Groq is Configured"));
   });
 
-  it("offers the Endpoint in the list as Configured, so a missing key is never found by a failed request", async () => {
+  it("offers the Endpoint in the table as Configured, so a missing key is never found by a failed request", async () => {
     renderApp("groq", () => [LOCAL, CLOUD_BARE, CLOUD_READY]);
 
-    const list = await screen.findByRole("combobox");
-    const offered = [...list.querySelectorAll("option")].map((option) => option.textContent);
+    await openPickerTable();
 
-    expect(offered).toContain("Groq — no Credential");
-    expect(offered).toContain("OpenRouter");
+    expect(says("groq")).toContain("Not set");
+    expect(says("openrouter")).toContain("Configured");
   });
 
   // The spec asks the interface to stay usable in a window narrow enough to sit
@@ -230,15 +247,16 @@ describe("which Endpoints are Configured", () => {
   it("is visible for each Endpoint at a glance, without discovering it by a failed request", async () => {
     renderApp("groq", () => [LOCAL, CLOUD_BARE, CLOUD_READY]);
 
-    const list = await screen.findByRole("combobox");
-    const offered = [...list.querySelectorAll("option")].map((option) => option.textContent);
+    await openPickerTable();
 
-    // Every Endpoint is listed either way. One missing its Credential is marked
+    // Every Endpoint is offered either way. One missing its Credential is marked
     // as such rather than hidden, since a hidden Endpoint is one the reader never
     // knew existed and cannot go and fix.
-    expect(offered).toContain("Groq — no Credential");
-    expect(offered).toContain("OpenRouter");
-    expect(offered).toContain("Ollama");
+    expect(says("groq")).toContain("Not set");
+    expect(says("openrouter")).toContain("Configured");
+    // A Local Endpoint needs none at all, and saying so is what keeps it from
+    // reading as a Cloud one that happens to be set.
+    expect(says("ollama")).toContain("Not needed");
   });
 
   it("names the variable each missing Credential belongs in, never any value", async () => {
@@ -501,7 +519,7 @@ describe("where Key Entry is offered", () => {
   it("is not offered for a Local Endpoint, which needs no Credential to begin with", async () => {
     renderApp("ollama");
 
-    await screen.findByRole("combobox");
+    await openPickerTable();
     expect(screen.queryByRole("button", { name: /Credential/i })).toBeNull();
   });
 
@@ -514,7 +532,7 @@ describe("where Key Entry is offered", () => {
     cleanup();
     render(<EndpointPicker endpointId="groq" onSelect={vi.fn()} />);
 
-    await screen.findByRole("combobox");
+    await openPickerTable();
     expect(screen.queryByRole("button", { name: /Credential/i })).toBeNull();
   });
 });

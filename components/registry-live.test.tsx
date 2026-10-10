@@ -92,13 +92,18 @@ describe("the Registry changing while the interface is open", () => {
 
     render(<EndpointPicker endpointId="ollama" onSelect={vi.fn()} />);
 
-    await screen.findByRole("combobox");
-    expect(screen.queryByRole("option", { name: "Home vLLM" })).toBeNull();
+    // Opened before the first read and left open across the second, which is what
+    // a reader declaring an Endpoint does: they are looking at the table, they add
+    // one, and they expect to see it arrive in the table they are still looking
+    // at. The list is only on screen while the popup is open now, so a test that
+    // never opened it would be reading a list no reader has to look at.
+    fireEvent.click(await screen.findByRole("button", { name: /Endpoint/ }));
+    expect(screen.queryByRole("option", { name: /Home vLLM/ })).toBeNull();
 
     // What a declaration does once it has written its file.
     window.dispatchEvent(new StorageEvent("storage", { key: REGISTRY_CHANGED_KEY }));
 
-    expect(await screen.findByRole("option", { name: "Home vLLM" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: /Home vLLM/ })).toBeTruthy();
   });
 
   it("reaches the chat header, which had kept showing the Endpoint it had before", async () => {

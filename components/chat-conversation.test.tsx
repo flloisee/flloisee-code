@@ -275,9 +275,19 @@ function openSettingsAt(name: string) {
   return dialog;
 }
 
-/** The Endpoint the picker is on, as the reader would read it. */
+/**
+ * The Endpoint the picker is on, as the reader would read it.
+ *
+ * The picker is a button showing the chosen Endpoint rather than a `<select>`
+ * holding it, so this reads the name off the button. Matched by id from the
+ * `data-endpoint` the row carries rather than by the text a row happens to be
+ * drawn with: this helper is about *which* Endpoint is chosen, and pinning it to
+ * the wording of the button would fail on a rename that changed nothing.
+ */
 function chosenEndpoint(): string {
-  return (screen.getByLabelText("Endpoint") as HTMLSelectElement).value;
+  return screen
+    .getByRole("button", { name: /Endpoint/ })
+    .querySelector("[data-chosen]")?.getAttribute("data-chosen") ?? "";
 }
 
 /**
@@ -306,11 +316,55 @@ async function chooseSecondEndpoint() {
 
   // LM Studio rather than a Cloud Endpoint: it sits beside Ollama in the
   // Registry, so nothing about a Cloud Endpoint's configuration has to hold for
-  // it to be listed. Being a different Endpoint is all this needs.
-  fireEvent.change(screen.getByLabelText("Endpoint"), { target: { value: "lmstudio" } });
+  // it to be offered. Being a different Endpoint is all this needs.
+  //
+  // Chosen the way a reader reaching for it would: open the table, type the part
+  // of the name they remember, take the row that is left. Named rather than
+  // reached as *a* combobox, because the Model field beside this one is a
+  // `<select>` and is a combobox too — the question is which field is being typed
+  // into, and only the name says that.
+  fireEvent.click(screen.getByRole("button", { name: /Endpoint/ }));
+  fireEvent.change(await screen.findByRole("combobox", { name: "Search Endpoints" }), {
+    target: { value: "lm studio" },
+  });
+  fireEvent.click(await screen.findByRole("option", { name: /LM Studio/ }));
 
   await pickerShows("lmstudio");
   closeSettings();
+}
+
+/**
+ * Chooses a Model from what the Endpoint reports, the way a reader does.
+ *
+ * The picker is a searchable table rather than a `<select>`, so this opens it,
+ * takes the row, and closes — which is the act that has to survive a Conversation
+ * switch and a reload. Reaching for the element and setting `value` would test the
+ * Preference Store without testing the control at all.
+ */
+async function chooseModel(identifier: string) {
+  openSettings();
+  // Awaited on the status line rather than on the trigger: while discovery is in
+  // flight the control is its typed field, and there is no list to open yet.
+  await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
+    timeout: 5000,
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /Model/ }));
+  const list = await screen.findByRole("listbox", { name: "Models" });
+
+  // Asserted as offered before it is chosen. That the list *holds* this
+  // identifier is what separates "picked from what the Endpoint reported" from
+  // "typed in by hand", which is the whole claim the calling test is making.
+  const row = within(list).getByRole("option", { name: new RegExp(escapeFor(identifier)) });
+  expect(row.getAttribute("data-model")).toBe(identifier);
+
+  fireEvent.click(row);
+  closeSettings();
+}
+
+/** A Model identifier into a regular expression, without the dots matching anything. */
+function escapeFor(identifier: string): string {
+  return identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 describe("the Endpoint and Model chosen survive a Conversation switch", () => {
@@ -392,14 +446,7 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     // Chosen from the discovered list rather than typed: with a live server
     // answering, the picker is a list, and choosing from it is the act that
     // has to survive starting a new Conversation.
-    openSettings();
-    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
-      timeout: 5000,
-    });
-    fireEvent.change(screen.getByLabelText("Model"), {
-      target: { value: "neohorse-1-4b-mlx" },
-    });
-    closeSettings();
+    await chooseModel("neohorse-1-4b-mlx");
 
     fireEvent.click(screen.getAllByRole("button", { name: "New" })[0]);
     send("Second question");
@@ -422,19 +469,18 @@ describe("the Endpoint and Model chosen survive a Conversation switch", () => {
     await waitFor(() => expect(screen.getByText(/One\./)).toBeTruthy(), { timeout: 5000 });
     await savedCount(1);
 
-    // An identifier discovery never listed is typed through the manual option,
-    // which is a second act from picking — choosing the option first, then
-    // typing into the field it opens.
+    // An identifier discovery never listed is typed through the typed field,
+    // which is a second act from picking — asking for the field first, then
+    // typing into it.
     openSettings();
     await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
       timeout: 5000,
     });
-    const picker = screen.getByLabelText("Model") as HTMLSelectElement;
-    const manual = [...picker.querySelectorAll("option")].find(
-      (option) => option.text === "Type an identifier...",
-    );
-    expect(manual).toBeTruthy();
-    fireEvent.change(picker, { target: { value: manual!.value } });
+
+    // A control beside the list rather than an option inside it, so the arrows can
+    // never walk onto an action that replaces the control instead of choosing
+    // from it.
+    fireEvent.click(screen.getByRole("button", { name: /Type an identifier instead/i }));
 
     const field = screen.getByLabelText("Model") as HTMLInputElement;
     expect(field.tagName).toBe("INPUT");
@@ -482,15 +528,7 @@ describe("the Endpoint and Model in use are shown while chatting", () => {
     renderApp();
 
     await chooseSecondEndpoint();
-
-    openSettings();
-    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
-      timeout: 5000,
-    });
-    fireEvent.change(screen.getByLabelText("Model"), {
-      target: { value: "neohorse-1-4b-mlx" },
-    });
-    closeSettings();
+    await chooseModel("neohorse-1-4b-mlx");
 
     // The dialog is gone, so this can only be the composer reading the choice
     // rather than the picker echoing it back. Naming the previous Endpoint or
@@ -520,14 +558,7 @@ describe("the Endpoint and Model chosen survive a reload", () => {
 
     // A Model chosen too, because the two are kept apart and either could
     // quietly be the one that did not survive.
-    openSettings();
-    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
-      timeout: 5000,
-    });
-    fireEvent.change(screen.getByLabelText("Model"), {
-      target: { value: "neohorse-1-4b-mlx" },
-    });
-    closeSettings();
+    await chooseModel("neohorse-1-4b-mlx");
 
     first.unmount();
 
@@ -536,13 +567,17 @@ describe("the Endpoint and Model chosen survive a reload", () => {
     renderApp();
 
     // Checked in the picker rather than trusted, because that is where the
-    // reader would look to see whether it took.
+    // reader would look to see whether it took. Read off the control's own
+    // `data-chosen` rather than its text, so a rename would not read as the
+    // choice having been lost.
     openSettings();
     await pickerShows("lmstudio");
     await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
       timeout: 5000,
     });
-    expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("neohorse-1-4b-mlx");
+    expect(
+      screen.getByRole("button", { name: /Model/ }).getAttribute("data-chosen"),
+    ).toBe("neohorse-1-4b-mlx");
     closeSettings();
 
     // And in the Request that follows, which is where it actually matters: a
@@ -787,19 +822,8 @@ describe("chatting with a Model picked from discovery", () => {
     await chooseSecondEndpoint();
 
     // Picked from the list discovery returned — not typed — so this is the act
-    // the reader performs against a live server, listing and all. Awaited via
-    // the status line, because while discovery is in flight the picker is its
-    // manual field and holding that element would wait on options forever.
-    openSettings();
-    await waitFor(() => expect(screen.getByText(/reports 8 Models/)).toBeTruthy(), {
-      timeout: 5000,
-    });
-    const picker = screen.getByLabelText("Model") as HTMLSelectElement;
-    expect([...picker.querySelectorAll("option")].map((option) => option.value)).toContain(
-      "ling-3.0-tiny-abliterated-apex",
-    );
-    fireEvent.change(picker, { target: { value: "ling-3.0-tiny-abliterated-apex" } });
-    closeSettings();
+    // the reader performs against a live server, listing and all.
+    await chooseModel("ling-3.0-tiny-abliterated-apex");
 
     send("Say hello");
 

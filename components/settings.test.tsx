@@ -131,26 +131,50 @@ describe("the Endpoint and Model in it", () => {
     // Endpoint. Behind separate tabs, choosing one would be followed by hunting
     // elsewhere for what it had produced.
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
     expect(within(dialog).getByLabelText("Model")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Endpoint/ })).toBeTruthy();
   });
 
-  it("edits the Endpoint and Model the Conversation is held with", () => {
+  it("edits the Endpoint and Model the Conversation is held with", async () => {
     const { trigger } = renderSettings();
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole("dialog");
-    const endpoint = within(dialog).getByLabelText("Endpoint");
+    // The Endpoint picker is a button rather than a `<select>`, so it is reached
+    // as the control it is. Its accessible name carries both the field and the
+    // Endpoint in use, because a control reading only "Endpoint" would leave a
+    // screen reader user with no idea which one is chosen until they opened it.
+    const endpoint = within(dialog).getByRole("button", { name: /Endpoint/ });
 
-    // The Registry is being read here — it is never answered in the browser —
-    // so the control is disabled until it has been. Offering choices the reader
-    // cannot make yet would be offering a stale list.
-    expect((endpoint as HTMLSelectElement).disabled).toBe(true);
+    // The Registry is being read here — it is never answered in the browser — so
+    // the control is disabled until it has been. Offering choices the reader cannot
+    // make yet would be offering a stale table.
+    await waitFor(() => expect((endpoint as HTMLButtonElement).disabled).toBe(false));
+    expect(endpoint.textContent).toContain("Ollama");
 
-    // The Model in use is what the field is showing, so opening Settings shows
-    // the Model a Conversation would be sent to rather than an empty box. The
-    // field is the manual one here because nothing answered discovery.
+    // The Model control is the typed field here rather than a list, because
+    // discovery is not answered in this test — which is the one state where that is
+    // the right control, and it still shows the Model in use rather than an empty
+    // box.
     expect((within(dialog).getByLabelText("Model") as HTMLInputElement).value).toBe("llama3.2");
+  });
+
+  it("opens the Endpoint table over the dialog rather than inside it", async () => {
+    // The Settings panel is `overflow: hidden` over a scrolling tab body, so a
+    // popup drawn inside it would be clipped by the very dialog it belongs to.
+    // It is drawn at the end of the document instead, which is the only place a
+    // box can outgrow the panel holding the control that opened it — and it has to
+    // sit above the scrim to be seen at all.
+    const { trigger } = renderSettings();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /Endpoint/ }));
+
+    const table = await screen.findByRole("listbox", { name: "Endpoints" });
+
+    expect(dialog.contains(table)).toBe(false);
+    expect(table.closest(".hm-panel")?.className).toContain("z-[var(--z-popover)]");
   });
 });
 
@@ -355,7 +379,7 @@ describe("the sections it is divided into", () => {
     expect(within(strip).getByRole("tab", { name: "Endpoint & Model" }).getAttribute("aria-selected")).toBe(
       "true",
     );
-    expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Endpoint/ })).toBeTruthy();
   });
 
   it("calls its tabs the words GLOSSARY.md settled on", () => {
@@ -393,7 +417,7 @@ describe("the sections it is divided into", () => {
     openTab(dialog, "Theme");
 
     expect(within(dialog).getByRole("button", { name: /switch to dark theme/i })).toBeTruthy();
-    expect(within(dialog).queryByLabelText("Endpoint")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /Endpoint/ })).toBeNull();
   });
 
   it("has never asked a section the reader did not open", () => {
@@ -413,7 +437,7 @@ describe("the sections it is divided into", () => {
     // Both controls are reachable from the tab that opens. Split across two,
     // choosing an Endpoint would leave the reader hunting a second tab for the
     // Models it had just decided on.
-    expect(within(dialog).getByLabelText("Endpoint")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Endpoint/ })).toBeTruthy();
     expect(within(dialog).getByLabelText("Model")).toBeTruthy();
     // And there is no tab named after either of them, so neither is a second
     // thing in this dialog with a name the reader has to keep apart.

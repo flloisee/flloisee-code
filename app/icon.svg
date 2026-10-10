@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- The message bubble emoji, at the size a tab strip draws it.
+       The stack names the three system colour-emoji faces in turn, because there
+       is no font to ship with the file: an SVG favicon renders in the browser's
+       own context and reaches the reader's installed emoji font, so each platform
+       picks up the bubble it already draws everywhere else. The trailing
+       `sans-serif` is there so a machine with none of the three falls back to a
+       real glyph rather than to nothing. -->
+  <text x="16" y="16" text-anchor="middle" dominant-baseline="central"
+        font-size="28"
+        font-family="'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif">💬</text>
+</svg>

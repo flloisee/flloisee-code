@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { STROKE } from "@/components/glyph";
+import { Pencil, STROKE } from "@/components/glyph";
 import type { ConversationSummary } from "@/lib/conversations/store";
 import { UNTITLED } from "@/lib/conversations/title";
 
@@ -55,25 +55,6 @@ export type ConversationListProps = {
 
 /** When the last row was renamed, the input holding it. Focus returns here on Escape. */
 type Editing = { id: string; title: string } | null;
-
-/**
- * A pencil, tip to the lower left at (3.5, 12.5).
- *
- * Measured rather than sketched: the shaft runs on the diagonal at three units
- * across and eleven long, which is the proportion that still reads as a pencil
- * once the glyph is 14px on screen. A narrower shaft stops being two edges and
- * becomes a slash, and a shorter one stops being a pencil and becomes a dart.
- * The ferrule line sits seven units up from the tip — far enough to be a second
- * edge, near enough that the blunt end reads as an end.
- */
-function Pencil() {
-  return (
-    <svg {...STROKE}>
-      <path d="M2.44 11.44 10.22 3.66 12.34 5.78 4.56 13.56Z" />
-      <path d="M7.39 6.49 9.51 8.61" />
-    </svg>
-  );
-}
 
 /**
  * A bin: lid, body, handle, and two ribs.

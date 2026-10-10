@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModelPicker } from "@/components/model-picker";
@@ -54,26 +54,45 @@ function renderPicker(modelId = "llama3.2") {
   return { onSelect };
 }
 
+/**
+ * The searched list, as the reader opens it.
+ *
+ * Pressing the control and waiting for the search field, because the rows only
+ * exist while the panel does — anything else would test a list no reader has ever
+ * been able to see.
+ */
+async function openList() {
+  fireEvent.click(await screen.findByRole("button", { name: /Model/ }));
+  return screen.findByRole("listbox", { name: "Models" });
+}
+
+/** The Model identifiers currently offered, in the order they are drawn. */
+function offered(): string[] {
+  return [...document.querySelectorAll("[data-model]")].map(
+    (row) => row.getAttribute("data-model") ?? "",
+  );
+}
+
 describe("a Model discovered from an Endpoint", () => {
-  it("is offered as a selectable list rather than typed", async () => {
+  it("is offered as a searchable list rather than typed", async () => {
     discoveryAnswers(() => found(["llama3.2:latest", "qwen2.5-coder:7b"]));
 
     renderPicker("llama3.2:latest");
+    await openList();
 
-    const list = await screen.findByRole("combobox");
-    const offered = [...list.querySelectorAll("option")].map((o) => o.value);
+    const shown = offered();
 
-    expect(offered).toContain("llama3.2:latest");
-    expect(offered).toContain("qwen2.5-coder:7b");
+    expect(shown).toContain("llama3.2:latest");
+    expect(shown).toContain("qwen2.5-coder:7b");
   });
 
   it("selects the Model I choose", async () => {
     discoveryAnswers(() => found(["llama3.2:latest", "qwen2.5-coder:7b"]));
 
     const { onSelect } = renderPicker("llama3.2:latest");
-    const list = await screen.findByRole("combobox");
+    const list = await openList();
 
-    fireEvent.change(list, { target: { value: "qwen2.5-coder:7b" } });
+    fireEvent.click(within(list).getByRole("option", { name: /qwen2\.5-coder:7b/ }));
 
     expect(onSelect).toHaveBeenCalledWith("qwen2.5-coder:7b");
   });
@@ -83,13 +102,63 @@ describe("a Model discovered from an Endpoint", () => {
 
     renderPicker("qwen2.5-coder:7b");
 
-    // A Model chosen by hand and absent from the list is still shown, rather
-    // than the control silently reading as some other Model.
-    const list = await screen.findByRole("combobox") as HTMLSelectElement;
-    expect(list.value).toBe("qwen2.5-coder:7b");
-    expect([...list.querySelectorAll("option")].map((o) => o.value)).toContain(
-      "qwen2.5-coder:7b",
+    // The control shows the Model actually in use rather than some other one, which
+    // is the whole claim here: it used to be an `<option>` added to the list for
+    // exactly this case.
+    const trigger = await screen.findByRole("button", { name: /Model/ });
+    expect(trigger.textContent).toContain("qwen2.5-coder:7b");
+
+    await openList();
+    expect(offered()[0]).toBe("qwen2.5-coder:7b");
+    expect(screen.getByRole("option", { name: /qwen2\.5-coder:7b/ }).getAttribute("aria-selected")).toBe(
+      "true",
     );
+  });
+});
+
+describe("searching what an Endpoint reports", () => {
+  it("finds a Model from part of its identifier, which is the only text there is", async () => {
+    // `qwen3.5-4b-mlx` and `text-embedding-nomic-embed-text-v1.5` are what an
+    // Endpoint reports: bare identifiers, no human names. Searching is therefore
+    // the only way a hundred of them is a list rather than a wall.
+    discoveryAnswers(() =>
+      found(["qwen3.5-4b-mlx", "text-embedding-nomic-embed-text-v1.5", "ling-3.0-tiny-oq4e"]),
+    );
+
+    renderPicker("qwen3.5-4b-mlx");
+    await openList();
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "embed" } });
+
+    expect(offered()).toEqual(["text-embedding-nomic-embed-text-v1.5"]);
+  });
+
+  it("finds a Model written with underscores as well as hyphens", async () => {
+    // The same Model is spelled `qwen3.5_4b` by one tool and `qwen3.5-4b-mlx` by
+    // another, and a reader copying the first should find the second.
+    discoveryAnswers(() => found(["qwen3.5-4b-mlx", "ling-3.0-tiny-oq4e"]));
+
+    renderPicker("qwen3.5-4b-mlx");
+    await openList();
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "qwen3.5_4b" } });
+
+    expect(offered()).toEqual(["qwen3.5-4b-mlx"]);
+  });
+
+  it("offers to type the identifier when a search finds nothing", async () => {
+    // A search that misses is exactly the case where the list cannot answer, and
+    // the reader may well be holding a Model the Endpoint does not report.
+    discoveryAnswers(() => found(["llama3.2:latest"]));
+
+    renderPicker("llama3.2:latest");
+    await openList();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "a-model-it-does-not-have" } });
+
+    const list = screen.getByRole("listbox", { name: "Models" });
+    fireEvent.click(within(list).getByRole("button", { name: /Type an identifier/i }));
+
+    expect(await screen.findByPlaceholderText("Model identifier")).toBeTruthy();
   });
 });
 
@@ -148,14 +217,17 @@ describe("an Endpoint that cannot be discovered", () => {
   });
 
   it("lets me type an identifier even when discovery did work", async () => {
+    // A real Endpoint reports some Models and not others — a Model the reader
+    // loaded before the app asked, or one served under a name it does not list.
     discoveryAnswers(() => found(["llama3.2:latest"]));
 
     renderPicker("llama3.2:latest");
-    const list = await screen.findByRole("combobox");
+    await screen.findByRole("button", { name: /Model/ });
 
-    // Choosing the last entry is how the reader asks for the typed field.
-    const manual = [...list.querySelectorAll("option")].at(-1)!.value;
-    fireEvent.change(list, { target: { value: manual } });
+    // A control beside the list rather than an option inside it, so the arrows can
+    // never walk onto an action that replaces the control instead of choosing
+    // from it.
+    fireEvent.click(screen.getByRole("button", { name: /Type an identifier instead/i }));
 
     expect(await screen.findByPlaceholderText("Model identifier")).toBeTruthy();
   });
@@ -167,17 +239,15 @@ describe("re-running discovery", () => {
     discoveryAnswers(() => found(loaded));
 
     renderPicker("llama3.2:latest");
-    await screen.findByRole("combobox");
+    await screen.findByRole("button", { name: /Model/ });
 
     // The Model is loaded on the Endpoint after the page was already open.
     loaded = [...loaded, "gemma3:4b"];
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await openList();
 
-    await waitFor(() => {
-      const offered = [...document.querySelectorAll("option")].map((o) => o.value);
-      expect(offered).toContain("gemma3:4b");
-    });
+    expect(offered()).toContain("gemma3:4b");
   });
 
   it("asks again about the Endpoint currently selected", async () => {
@@ -195,7 +265,7 @@ describe("re-running discovery", () => {
         onSelect={vi.fn()}
       />,
     );
-    await screen.findByRole("combobox");
+    await screen.findByRole("button", { name: /Model/ });
 
     rerender(
       <ModelPicker

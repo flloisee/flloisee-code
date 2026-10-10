@@ -41,8 +41,12 @@ export const LOCAL_ENDPOINTS: readonly LocalEndpoint[] = [
  *
  * The Catalog holds 187 Cloud Endpoints and most are services a reader will
  * never choose: proxies, resellers, regional mirrors of each other. Scrolling
- * past them all to find Groq is the problem these three groups solve, so the
- * group is a short list of widely-known names rather than a long one.
+ * past them all to find Groq is the problem these groups solve, so the group is a
+ * short list of widely-known names rather than a long one. The interface's search
+ * field now answers the same question from the other end — by name rather than by
+ * position — which is the reason the heading says "Cloud" and carries no
+ * "(Recommended)": the five are first because they are worth reaching, not because
+ * a reader has to read a label to learn that.
  *
  * Anthropic is absent because the Catalog has no such entry: its native message
  * format is out of scope, and the spec's own words for that are in the Out of

@@ -38,8 +38,8 @@ DeepSeek, Groq, Mistral, OpenRouter, GitHub Copilot, Hugging Face, NVIDIA, Aliba
 Fireworks AI, Baseten, Nebius, and many more — the full list is the Catalog itself.
 
 Each entry carries a name, a base URL, a documentation link, its Credential's variable
-name, and its newest Models. Five are offered up front in a **Recommended** group —
-OpenAI, Google, OpenRouter, DeepSeek, Groq — and the rest sit under **Cloud (Others)**.
+name, and its newest Models. Five are offered up front under **Cloud** — OpenAI, Google,
+OpenRouter, DeepSeek, Groq — and the rest sit under **Cloud (Others)**.
 
 The Catalog is committed to source control and reviewed as code. That is deliberate: it
 decides *where your Credential is sent*, so a changed base URL has to arrive as a

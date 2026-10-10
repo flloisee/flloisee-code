@@ -13,6 +13,7 @@ import { canAnswer, type ApprovalAnswer } from "@/lib/chat/approval-answer";
 import { isAwaitingApproval, isToolCall } from "@/lib/chat/tool-part";
 import type { SavedConversation } from "@/lib/conversations/store";
 
+import { Pencil, STROKE } from "./glyph";
 import { useFileMenu } from "./file-menu";
 import { Markdown } from "./markdown";
 import { useNamedFiles } from "./named-files";
@@ -60,34 +61,304 @@ export type ChatProps = {
  * a message of its own, so its row sits inside the Response that made it — which
  * is what lets a reader see that a line the Model cited and the file it came
  * from are two halves of the same thing.
+ *
+ * **Copy is offered on a Turn whoever wrote it.** An answer is as much the
+ * reader's to take away as the words they asked it with — a plan they want in a
+ * file, a sentence they want to quote — and a Conversation where the one thing
+ * they cannot keep is the answer is a Conversation they have to retype.
+ *
+ * **Edit and Rewind are offered on the reader's own and nobody else's.** Both put
+ * the Conversation back to a Turn they had already sent; the difference is
+ * whether they then get to say it differently. Neither is a thing that can be
+ * done to a Model's answer, which is the answer's to stand behind.
  */
-export function Turn({ message }: { message: UIMessage }) {
+export function Turn({
+  message,
+  onEdit,
+  onRewind,
+}: {
+  message: UIMessage;
+  /**
+   * Called to put this Turn's words back in the composer for changing, or absent
+   * where there is nothing to change them into — a Response arriving. `Chat` knows
+   * the whole history and is what decides; this only draws the control the
+   * decision offers.
+   */
+  onEdit?: () => void;
+  /**
+   * Called to leave this Turn as the last of the Conversation, or absent where
+   * there is nothing to rewind to — a Turn already at the end, or a Response
+   * arriving. `Chat` knows the whole history and is what decides; this only draws
+   * the control the decision offers.
+   */
+  onRewind?: () => void;
+}) {
   const fromUser = message.role === "user";
 
   return (
     <div className={`flex ${fromUser ? "justify-end" : "justify-start"}`}>
-      {/* `min-w-0` lets a wide code block scroll inside its own box instead of
-          stretching this flex child past the window. */}
-      {/* The two surfaces are inverses of each other rather than two colours:
-          the reader's own words sit on ink, the Model's on a raised paper. The
-          pair flips together with the mode, so in dark mode the reader's Turn
-          is the light one — the contrast is identical either way. */}
-      {/* `data-turn` is a structural hook, not a styling one: it names which
-          side of the Conversation a bubble belongs to so the tests can find the
-          bubbles without having to know what colour or radius they are drawn
-          with. Tests used to select on `.rounded-2xl`, which pinned the bubble
-          radius to a test assertion. */}
-      <div
-        data-turn={fromUser ? "user" : "response"}
-        className={`min-w-0 max-w-[85%] break-words rounded-panel px-4 py-3 ${
-          fromUser
-            ? "whitespace-pre-wrap bg-ink text-paper"
-            : "border border-rule bg-paper-2 text-ink-2"
-        }`}
-      >
-        {renderParts(message, fromUser)}
+      {/* The bubble and the row of controls under it, in a column as wide as the
+          bubble. Split out rather than hung off this row because a row of
+          `justify-end` spans the whole reading column — `group` on *this* would
+          light the controls up when the pointer crossed the empty half of the
+          screen a hundred pixels away from the Turn, which is not hovering it at
+          all. On the column, which shrink-wraps to the bubble, the two are the
+          same place.
+
+          `items-end` rather than stretch, so the controls sit under the
+          right-hand edge of the bubble instead of under the far end of the
+          column — the same edge the Turn's words end on, on either side of the
+          Conversation, so a reader crossing from one to the other finds the
+          control where they last left it. */}
+      <div className="group flex min-w-0 max-w-[85%] flex-col items-end">
+        {/* `min-w-0` lets a wide code block scroll inside its own box instead of
+            stretching this flex child past the window. */}
+        {/* The two surfaces are inverses of each other rather than two colours:
+            the reader's own words sit on ink, the Model's on a raised paper. The
+            pair flips together with the mode, so in dark mode the reader's Turn
+            is the light one — the contrast is identical either way. */}
+        {/* `data-turn` is a structural hook, not a styling one: it names which
+            side of the Conversation a bubble belongs to so the tests can find the
+            bubbles without having to know what colour or radius they are drawn
+            with. Tests used to select on `.rounded-2xl`, which pinned the bubble
+            radius to a test assertion. */}
+        <div
+          data-turn={fromUser ? "user" : "response"}
+          className={`min-w-0 break-words rounded-panel px-4 py-3 ${
+            fromUser
+              ? "whitespace-pre-wrap bg-ink text-paper"
+              : "border border-rule bg-paper-2 text-ink-2"
+          }`}
+        >
+          {renderParts(message, fromUser)}
+        </div>
+
+        {/* Under the bubble and not inside it. A reader's own Turn is the one part
+            of this app drawn as solid ink, and a control resting on ink inverts
+            every colour a button carries — quiet would be loud, the focus ring
+            would vanish into the field behind it, and the two would have to be
+            restated against a third surface. Below, they are buttons like any
+            other, in the paper of the Conversation, and the row reads as what it
+            is: something to do with the words above it.
+
+            Always rendered, and never empty: a Response carries at least as many
+            words as a Turn of the reader's, and a control row that appears and
+            disappears with the role would leave the reader's own messages with
+            furniture a Response does not have. Edit and Rewind are the reader's
+            alone, and `Chat` is what decides that — `Turn` just draws whatever it
+            is given. */}
+        <TurnActions text={asSaid(message)} onEdit={onEdit} onRewind={onRewind} />
       </div>
     </div>
+  );
+}
+
+/**
+ * What a Turn said, whole, as it was said.
+ *
+ * Read back off the parts rather than off the DOM, because the DOM has this
+ * Turn's controls in it by now and a Turn's text is not everything said in it.
+ * The join is the same one `renderParts` draws with, so what lands on the
+ * clipboard is the Turn as it was written rather than as the browser happened to
+ * lay it out — which is the only copy of it worth having.
+ *
+ * **What comes out is the source, not the rendering.** For a Turn of the reader's
+ * that is the same thing either way; for a Response it means the markdown rather
+ * than the words the renderer made of it, so a heading arrives with its `##` and a
+ * fenced block with its fence. That is what a reader is taking the answer away
+ * *for* — pasting it into a note — and it is the same call `markdown.tsx` makes
+ * when a code block offers to copy itself.
+ *
+ * **Nothing is trimmed or folded on the way.** What was written is what is
+ * copied: a clipboard that collapsed a blank line, dropped a mention or cut a
+ * trailing space would be handing back a different Turn from the one that was
+ * said.
+ */
+function asSaid(message: UIMessage): string {
+  const words: string[] = [];
+
+  for (const part of message.parts) {
+    if (part.type === "text") words.push(part.text);
+  }
+
+  return words.join("\n\n");
+}
+
+/**
+ * What a reader can do with a Turn of their own: copy it, edit it, or rewind to
+ * it.
+ *
+ * **Glyphs rather than words, for the reason the rows in `conversation-list`
+ * give.** A Turn is identified by what it says, and three verbs spelled out under
+ * every one of them would be more interface than the reading column has room
+ * for. The words move to where a glyph cannot reach: the accessible name, and
+ * the hover — and because a `title` carries the same sentence as the label,
+ * nothing is lost on a device that cannot hover at all.
+ *
+ * **They arrive on the hover rather than sitting there.** A Conversation is
+ * mostly prose, and a row of controls under every line of it would be a second
+ * column of furniture competing with the answer. They are still in the document
+ * and still in the tab order, so a keyboard reader reaches them by tabbing
+ * rather than by finding them with a pointer — which is what `focus-within` is
+ * for. On a device with no hover to wait for they are simply drawn, because a
+ * control that only exists for a pointer that is not there is not a control;
+ * `hover-hover` in `globals.css` is the whole of that decision.
+ */
+function TurnActions({
+  text,
+  onEdit,
+  onRewind,
+}: {
+  text: string;
+  onEdit?: () => void;
+  onRewind?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  /**
+   * The timer that takes "Copied" back off the control.
+   *
+   * Held rather than left to the browser, because the Turn this belongs to does
+   * not outlive the Conversation: a reader who rewinds or opens another one
+   * unmounts it with the word still showing, and a timer nobody cancelled would
+   * fire into a component that is no longer there.
+   */
+  const unrevert = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(unrevert.current), []);
+
+  /**
+   * Silent success, the same bargain `markdown.tsx` strikes for a code block:
+   * the control says it worked and takes it back on its own. No toast, because the
+   * reader is already looking at the button they pressed.
+   *
+   * **A refusal is silent too**, and deliberately says nothing. The clipboard is
+   * the reader's own and behind whatever the browser has been granted to reach;
+   * there is nothing here worth a line of interface to explain, and a message
+   * about it would be one more thing in a Conversation that is not the Model
+   * talking.
+   */
+  function copy() {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        clearTimeout(unrevert.current);
+        unrevert.current = setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => setCopied(false));
+  }
+
+  return (
+    <div className="mt-1 flex items-center gap-1 opacity-100 transition-opacity hover-hover:opacity-0 hover-hover:group-hover:opacity-100 hover-hover:focus-within:opacity-100">
+      <button
+        type="button"
+        // Disabled on a Turn with nothing said in it — a Response that was two
+        // Tool Calls and no prose — rather than offered and quietly copying the
+        // empty string, which is what the code block in `markdown.tsx` does with
+        // the same question.
+        disabled={text === ""}
+        onClick={copy}
+        aria-label={copied ? "Copied" : "Copy"}
+        title={copied ? "Copied" : "Copy"}
+        className="hm-btn hm-btn--quiet hm-btn--icon"
+      >
+        {copied ? <Tick /> : <Sheets />}
+      </button>
+
+      {/* Edit and Rewind are the same act at two depths — Rewind takes the
+          Conversation back to this Turn, Edit takes it back and lets the reader
+          say it differently — so they sit together, in the order the deeper one
+          is reached. Copy leads because it is the only one of the three that
+          leaves the Conversation alone. */}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Edit"
+          title="Edit"
+          className="hm-btn hm-btn--quiet hm-btn--icon"
+        >
+          <Pencil />
+        </button>
+      )}
+
+      {/* The one control that is the reader's alone, and absent rather than
+          disabled where there is nothing to rewind to — a Turn already at the
+          end, or a Response arriving. A control that is on screen and does
+          nothing is a claim about the Conversation that is not true, and the
+          reader has no way to tell it apart from one that would work. */}
+      {onRewind && (
+        <button
+          type="button"
+          onClick={onRewind}
+          aria-label="Rewind"
+          title="Rewind"
+          className="hm-btn hm-btn--quiet hm-btn--icon"
+        >
+          <Rewind />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Two sheets, the back one showing along the top and the left.
+ *
+ * The overlap is the whole of it. A single outlined rectangle reads as a frame or
+ * a card, and what makes it *another of these* is the second edge running inside
+ * the first on two sides and cutting across it on the other two.
+ *
+ * The back sheet is drawn open at its lower right rather than closed, because
+ * the front sheet lies over that corner: closing it would put one stroke under
+ * another for no reader to see, and at 14px a doubled stroke is where a drawing
+ * starts to look like a mistake rather than a shape.
+ */
+function Sheets() {
+  return (
+    <svg {...STROKE}>
+      <path d="M11.75 4.5a1.75 1.75 0 0 0-1.75-1.75H4.5a1.75 1.75 0 0 0-1.75 1.75v7a1.75 1.75 0 0 0 1.75 1.75h1" />
+      <rect x="5.5" y="5.5" width="7.75" height="7.75" rx="1.75" />
+    </svg>
+  );
+}
+
+/**
+ * A tick: a short stroke and a long one, meeting low and to the left.
+ *
+ * What stands in for the word "Copied" — and a drawing rather than the word
+ * because the control it replaces is a square of glyph with nothing written on
+ * it. Setting "Copied" beside it in type would make the button wider than the
+ * one it took the place of, and the row would shuffle sideways under the pointer
+ * at exactly the moment the reader had pressed it.
+ */
+function Tick() {
+  return (
+    <svg {...STROKE}>
+      <path d="M3 8.5 6.25 11.75 13 4.5" />
+    </svg>
+  );
+}
+
+/**
+ * An arrow going back the way it came, round and anticlockwise.
+ *
+ * Circular rather than straight because the straight undo arrow points at a
+ * *place* — there, the line it runs back along — and rewinding goes nowhere in
+ * particular: it puts the Conversation back to a point in its own past, which is
+ * what going round says and what coming back along an edge does not.
+ *
+ * The notch at the lower left is the head of the arrow, and the shaft stops dead
+ * against it. Drawing it as two strokes rather than one keeps the head crisp
+ * where the two meet, which at 14px is the only part of the glyph that says
+ * *arrow* rather than *circle*.
+ */
+function Rewind() {
+  return (
+    <svg {...STROKE}>
+      <path d="M2 8a6 6 0 1 0 6-6 6.5 6.5 0 0 0-4.49 1.83L2 5.33" />
+      <path d="M2 2v3.33h3.33" />
+    </svg>
   );
 }
 
@@ -234,6 +505,20 @@ export function Chat({
    */
   const [namedWithAt, setNamedWithAt] = useState(false);
 
+  /**
+   * The Turn whose words are in the composer for changing, or `null` for none.
+   *
+   * An id rather than the message, so the composer does not hold a second copy of
+   * a Turn that `messages` is already the record of — and so a Conversation that
+   * is remounted, or a Turn that is rewound away, ends the edit by itself rather
+   * than by anything remembering to clear it.
+   *
+   * **Only ever one at a time, and only the reader's.** Editing a message is
+   * writing a new one in the same place, and there is one composer to write it
+   * in.
+   */
+  const [editing, setEditing] = useState<string | null>(null);
+
   const menu = useFileMenu({
     query: mention?.query ?? null,
     onPick: insertPath,
@@ -324,6 +609,7 @@ export function Chat({
     setMessages,
     regenerate,
     addToolApprovalResponse,
+    clearError,
   } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     // Bound re-renders while a Response streams in, so reading stays smooth.
@@ -422,15 +708,26 @@ export function Chat({
   // the last message alone: a Conversation with an outstanding question anywhere
   // in it is a Conversation whose history the Endpoint will refuse, and the last
   // message is not where that stops being true.
+  //
+  // **And nothing is regenerated while an edit is open.** Regenerate answers the
+  // Turn at the end of the Conversation, and an edit is a promise to throw that
+  // end away and replace what came before it — so the two disagree about what the
+  // reader is looking at, and only one of them is what they asked for. Escape
+  // puts the edit down and brings it straight back.
   const awaitingResponse =
     status === "error" && messages.at(-1)?.role === "user";
   const canRegenerate =
     !inProgress &&
     !awaitingAnswer &&
+    editing === null &&
     (messages.at(-1)?.role === "assistant" || awaitingResponse);
 
   function startFreshConversation() {
     setMessages([]);
+    // Nothing is left to edit into. The composer is left exactly as it was — New
+    // has never taken a half-written message from anyone — but an edit pointing
+    // at a Turn that is no longer on screen is a different thing, and is given up.
+    if (editing !== null) abandonEdit();
     stop();
     // The New control in the composer does not know about the list, so the
     // caller is told to detach this Conversation — otherwise the next save
@@ -438,12 +735,157 @@ export function Chat({
     onStartNew?.();
   }
 
+  /**
+   * Whether this Turn is one the reader can change the words of.
+   *
+   * **Only their own**, for the reason Rewind is theirs alone: there is no version
+   * of this where a Model's answer is a draft.
+   *
+   * **Never while a Response is arriving.** Loading the composer does not touch
+   * the Conversation — the cut waits for the commit — so an edit opened mid-stream
+   * would leave the reader composing against a Turn that is still growing under
+   * them, and then throw away whatever it grew into. Hidden rather than offered
+   * and then failing: the same bargain `canRewind` strikes, and the same reason.
+   */
+  function canEdit(message: UIMessage): boolean {
+    return message.role === "user" && !inProgress;
+  }
+
+  /**
+   * Puts a Turn's words back in the composer, to be said differently.
+   *
+   * **Nothing about the Conversation changes.** The Response that Turn produced
+   * and everything after it stay exactly where they are while the reader types,
+   * because an edit they change their mind about should cost them nothing —
+   * and because a cut made here would be a cut made on a draft, which is not a
+   * thing a reader has asked for yet. The cut is part of the commit, where the
+   * SDK makes it and where the words to keep are already known.
+   *
+   * **The caret goes to the end**, because that is what a reader changing the end
+   * of what they said wants, and because it is the only position from which every
+   * other position is a keystroke or two away. Taken by the same owed-caret note
+   * `insertPath` uses, for the same reason: React is about to write the value, and
+   * a caret set before then is a caret React overwrites.
+   *
+   * **The tip about `@` goes with it.** A message that already names files is one
+   * where the reader has found `@` and worked out what it is for, and the same
+   * rule that takes the sentence away after a name is picked takes it away here.
+   */
+  function editTurn(id: string) {
+    const at = messages.findIndex((message) => message.id === id);
+    if (at === -1) return;
+
+    const draft = asSaid(messages[at]);
+    setInput(draft);
+    setEditing(id);
+    setMention(null);
+    setNamedWithAt(true);
+    caretOwed.current = draft.length;
+    field.current?.focus();
+  }
+
+  /**
+   * Gives up an edit, and the draft with it.
+   *
+   * **Called from Escape, and from wherever the Turn being edited stops being on
+   * screen.** A draft belongs to the Turn it is changing, and a Turn that has been
+   * rewound away or replaced by New has nothing left to draft against — the SDK
+   * refuses a `messageId` it cannot find rather than quietly appending a new
+   * message in its place, which is the right refusal and the wrong moment to
+   * learn it from.
+   *
+   * The draft goes with the edit rather than being kept, because a message the
+   * reader cannot tell is going anywhere is worse than one they have to type again.
+   */
+  function abandonEdit() {
+    setEditing(null);
+    setInput("");
+  }
+
+  /**
+   * Whether this Turn is one the reader can rewind to.
+   *
+   * **Only their own.** A Model's answer is not a place a Conversation restarts
+   * from: what is said next is said in answer to something they asked, and a
+   * history that began at the answer would have lost the question with it.
+   *
+   * **Only once something has followed it.** A Turn already at the end is the one
+   * they are writing from — there is nothing behind it, and a control that removes
+   * nothing is a claim about the Conversation that is not true.
+   *
+   * **And never while a Response is arriving.** The stream is still appending to
+   * the Turn it began, so cutting the history at a row above it would leave words
+   * landing with nothing underneath to belong to — the failure this Conversation's
+   * own `canRegenerate` is careful about, for the same reason.
+   */
+  function canRewind(message: UIMessage, index: number): boolean {
+    return message.role === "user" && !inProgress && index < messages.length - 1;
+  }
+
+  /**
+   * The Conversation as it stood at the Turn the reader rewound to.
+   *
+   * **The Turn is kept; everything after it goes.** A reader who rewinds has not
+   * changed what they asked — they have changed their mind about what came back,
+   * and the next message has to be written with the old answer still in the
+   * Model's memory of the exchange. Taking the Turn with them would send the next
+   * message as though it came first, which is a different Conversation and one
+   * that silently loses the question everything else was asked about.
+   *
+   * The failure goes with it. The error line above the composer belongs to a Turn
+   * no longer on screen, and leaving it there is an account of a request the
+   * reader has just decided was not worth making.
+   *
+   * Nothing is sent. The reader's next message is written against what is left,
+   * which is what makes this different from Regenerate: one of them re-asks the
+   * same question, and the other lets them ask a new one.
+   */
+  function rewindTo(id: string) {
+    const at = messages.findIndex((message) => message.id === id);
+    if (at === -1) return;
+
+    const kept = messages.slice(0, at + 1);
+    setMessages(kept);
+    clearError();
+
+    // The cut may have taken the Turn being edited with it, and an edit pointing
+    // at a Turn that is not there has to be given up rather than kept — see
+    // `abandonEdit`.
+    if (editing !== null && !kept.some((message) => message.id === editing)) {
+      abandonEdit();
+    }
+  }
+
+  /**
+   * Sends what is in the composer — as a new Turn, or as a replacement for the
+   * one being edited.
+   *
+   * **An edit is sent with the id of the Turn it is changing**, and the SDK does
+   * the rest in one step: it cuts the Conversation at that Turn, puts these words
+   * in its place, and asks again. That is what makes the cut part of the commit
+   * rather than part of the opening — the reader has said what they meant by the
+   * time anything is thrown away, and the words being kept are known.
+   *
+   * **The Turn keeps its identity across the edit**, which is why the id is
+   * passed rather than a fresh one minted: it is the same question, said again,
+   * and the composer's `@` names, the row of files above it and the saved
+   * Conversation all hang off that.
+   *
+   * Trimming applies here as it does everywhere, so an edit that only added or
+   * removed a space at either end sends the same message rather than a subtly
+   * different one from the one already in the Conversation.
+   */
   function handleSubmit() {
     const text = input.trim();
     if (!text || inProgress) return;
 
+    const replacing = editing;
     setInput("");
-    void sendMessage({ text }, { body: { endpointId, modelId } });
+    setEditing(null);
+    void sendMessage(
+      { text, ...(replacing === null ? {} : { messageId: replacing }) },
+      { body: { endpointId, modelId } },
+    );
   }
 
   function handleRegenerate() {
@@ -534,8 +976,13 @@ export function Chat({
                 </p>
               </div>
             )}
-            {messages.map((message) => (
-              <Turn key={message.id} message={message} />
+            {messages.map((message, index) => (
+              <Turn
+                key={message.id}
+                message={message}
+                onEdit={canEdit(message) ? () => editTurn(message.id) : undefined}
+                onRewind={canRewind(message, index) ? () => rewindTo(message.id) : undefined}
+              />
             ))}
           </div>
         </div>
@@ -714,8 +1161,24 @@ export function Chat({
                   event.preventDefault();
                   handleSubmit();
                 }
+
+                // Escape puts an edit down, the same key that abandons a rename
+                // in `conversation-list` and dismisses the menu above. Reached
+                // only once the menu has declined the key, so the two never
+                // compete — and a reader who opened an edit by accident gets out
+                // of it without touching the Conversation, which is the one thing
+                // an edit must never cost them.
+                if (event.key === "Escape" && editing !== null) {
+                  event.preventDefault();
+                  abandonEdit();
+                }
               }}
-              placeholder="Send a message…"
+              // Says which of the two things the field is about to do, because the
+              // difference is invisible from the words in it: a reader who has
+              // edited a Turn before knows to expect their old question to go,
+              // and one who has not is about to lose a Response and everything
+              // after it.
+              placeholder={editing === null ? "Send a message…" : "Edit your message…"}
               rows={1}
               aria-label="Message"
               // The combobox wiring, in full, because this is the case it was written

@@ -168,6 +168,17 @@
   --z-dropdown: 100;
   --z-sticky:   200;
   --z-modal:    400;
+
+  /* Above the modal, for a popup that is *part of* one.
+   *
+   * The Endpoint picker opens a searchable table from inside the Settings dialog,
+   * and a dialog's own panel is `overflow: hidden` — so that table cannot be drawn
+   * inside it and is portalled to the end of the document instead. From there
+   * `--z-dropdown` would put it *behind* the scrim it was opened from, which is the
+   * one layer a popup belonging to a dialog must never be under. This is that
+   * layer, and nothing else uses it: a popup outside a dialog still belongs at
+   * `--z-dropdown`. */
+  --z-popover:  500;
 }
 
 /* -----------------------------------------------------------------------
